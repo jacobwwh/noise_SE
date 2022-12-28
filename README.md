@@ -33,7 +33,7 @@ Roberta-based: CodeBERT, (GraphCodeBERT), UniXCoder
 
 Pre-trained encoder-decoder: CodeT5, (PLBART)
 
-Trained-from-scratch models: GNN-based approaches
+Trained-from-scratch models: LSTM, GNN-based approaches
 
 ## References
 
