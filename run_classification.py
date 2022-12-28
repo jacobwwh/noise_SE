@@ -20,7 +20,7 @@ from transformers import (WEIGHTS_NAME, AdamW, get_linear_schedule_with_warmup,
                           RobertaConfig, RobertaForSequenceClassification, RobertaTokenizer, RobertaModel,
                           DistilBertConfig, DistilBertForMaskedLM, DistilBertTokenizer)
                           
-from utils.poj_utils import ClassificationDataset,generate_data
+from utils.poj_utils import ClassificationDataset,generate_pojdata
 from utils.codenet_utils import read_codenetdata
 from model.bert import bert_classifier_self,lstm_classifier
 
@@ -86,3 +86,132 @@ elif args.model_type=='unixcoder':
     encoder_config= RobertaConfig.from_pretrained("microsoft/unixcoder-base")
     encoder_config.num_labels=num_classes
     model_encoder = RobertaForSequenceClassification.from_pretrained("microsoft/unixcoder-base",config=encoder_config)
+    
+if args.block_size <= 0:
+    args.block_size = tokenizer.max_len_single_sentence  # Our input block size will be the max possible for the model
+    args.block_size = min(args.block_size, tokenizer.max_len_single_sentence)
+
+model_encoder.to(device)
+
+
+if args.dataset=='poj':
+    train_samples,valid_samples,test_samples=generate_pojdata(mislabeled_rate=0.2)
+if args.dataset in ['java250','python800']:
+    train_samples,valid_samples,test_samples=read_codenetdata(dataname=args.dataset,mislabeled_rate=0.2)
+    
+trainset=ClassificationDataset(tokenizer,args,train_samples)
+validset=ClassificationDataset(tokenizer,args,valid_samples)
+testset=ClassificationDataset(tokenizer,args,test_samples)
+print(len(trainset),len(validset),len(testset))
+
+#choose classifier: pre-trained or lstm
+model=bert_classifier_self(model_encoder,encoder_config,tokenizer,args)
+#model=lstm_classifier(encoder_config.vocab_size,128,128,num_classes)
+model=model.to(device)
+
+train_dataloader = DataLoader(trainset, shuffle=True, batch_size=args.batch_size,num_workers=0)
+valid_dataloader = DataLoader(validset, shuffle=False, batch_size=args.batch_size,num_workers=0)
+test_dataloader = DataLoader(testset, shuffle=False, batch_size=args.batch_size,num_workers=0)
+
+optimizer = optim.AdamW(model.parameters(), lr=args.lr)
+criterion=nn.CrossEntropyLoss()
+args.max_steps=50*len(train_dataloader) #num_epochs*num_batches
+scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=args.max_steps*0.1,
+                                                num_training_steps=args.max_steps)
+print('fp16:',args.fp16)
+if args.fp16:
+    scaler = GradScaler()
+    
+    
+def evaluate(model,dataloader):
+    eval_loss = 0.0
+    nb_eval_steps = 0
+    model.eval()
+    logits=[] 
+    labels=[]
+
+    bar=tqdm(dataloader)
+    for batch in bar:
+        inputs = batch[0].to(device)        
+        label=batch[1].to(device) 
+        with torch.no_grad():
+            #lm_loss,logit = model(inputs,label)
+            #eval_loss += lm_loss.mean().item()
+            logit=model(inputs)
+            eval_loss=F.cross_entropy(logit, label.long(), reduction='mean')
+            logits.append(logit.cpu().numpy())
+            labels.append(label.cpu().numpy())
+        nb_eval_steps += 1
+
+        bar.set_description("loss {}".format(eval_loss.item()))
+
+    logits=np.concatenate(logits,0)
+    labels=np.concatenate(labels,0)
+    #preds=logits[:,0]>0.5 #binary
+    preds=np.argmax(logits,1)
+    eval_acc=np.mean(labels==preds)
+    eval_loss = eval_loss / nb_eval_steps
+    perplexity = torch.tensor(eval_loss)
+            
+    result = {
+        "eval_loss": float(perplexity),
+        "eval_acc":round(eval_acc,4),
+    }
+    return result
+  
+  
+global_step=0
+tr_loss, logging_loss,avg_loss,tr_nb,tr_num,train_loss = 0.0, 0.0,0.0,0,0,0
+best_mrr=0.0
+best_acc=0.0
+
+best_valid_acc=0
+
+model.zero_grad()
+for epoch in range(50):
+    bar = tqdm(train_dataloader,total=len(train_dataloader))
+    tr_num=0
+    train_loss=0
+    training_original_labels=[]
+    training_noisy_labels=[]
+    training_meta_weights=[]
+    model.train()
+    for step, batch in enumerate(bar):
+        #print(batch)
+        inputs = batch[0].to(device)        
+        labels=batch[1].to(device) 
+        original_labels=batch[2].to(device)
+        #print(inputs.size(),labels.size(),original_labels.size())
+        
+        outputs=model(inputs)
+        loss=F.cross_entropy(outputs, labels.long(), reduction='mean')
+        optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
+        
+        tr_loss += loss.item()
+        tr_num+=1
+        train_loss+=loss.item()
+        if avg_loss==0:
+            avg_loss=tr_loss
+        avg_loss=round(train_loss/tr_num,5)
+        bar.set_description("epoch {} loss {}".format(epoch+1,loss.item()))
+        
+        optimizer.step()
+        scheduler.step()
+        global_step += 1
+        output_flag=True
+        avg_loss=round(np.exp((tr_loss - logging_loss) /(global_step- tr_nb)),4)
+
+        tr_nb=global_step
+        
+    print('----validation----')
+    valid_res=evaluate(model,valid_dataloader)
+    print(valid_res)
+    valid_acc=valid_res['eval_acc']
+    if valid_acc>best_valid_acc:
+        best_valid_acc=valid_acc
+        print('best epoch')
+        print('----test----')
+        test_res=evaluate(model,test_dataloader)
+        print(test_res)
