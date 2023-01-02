@@ -55,6 +55,7 @@ parser.add_argument("--eval_batch_size", default=64, type=int,
                         help="Batch size per GPU/CPU for evaluation.")
 parser.add_argument('--gradient_accumulation_steps', type=int, default=1,
                         help="Number of updates steps to accumulate before performing a backward/update pass.")
+parser.add_argument("--epochs", default=50, type=int, help="Training epochs.")
 parser.add_argument('--fp16', action='store_true',
                         help="Whether to use 16-bit (mixed) precision (through NVIDIA apex) instead of 32-bit")
 args=parser.parse_args()
@@ -115,7 +116,7 @@ test_dataloader = DataLoader(testset, shuffle=False, batch_size=args.batch_size,
 
 optimizer = optim.AdamW(model.parameters(), lr=args.lr)
 criterion=nn.CrossEntropyLoss()
-args.max_steps=50*len(train_dataloader) #num_epochs*num_batches
+args.max_steps=args.epochs*len(train_dataloader) #num_epochs*num_batches
 scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=args.max_steps*0.1,
                                                 num_training_steps=args.max_steps)
 print('fp16:',args.fp16)
@@ -168,7 +169,7 @@ best_acc=0.0
 best_valid_acc=0
 
 model.zero_grad()
-for epoch in range(50):
+for epoch in range(args.epochs):
     bar = tqdm(train_dataloader,total=len(train_dataloader))
     tr_num=0
     train_loss=0
