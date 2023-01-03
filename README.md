@@ -47,3 +47,5 @@ Trained-from-scratch models: LSTM, GNN-based approaches
 
 [5] Robust Learning of Deep Predictive Models from Noisy and Imbalanced Software Engineering Datasets. In Proceedings of the 37th IEEE/ACM International Conference on Automated Software Engineering, 2022 (not published).
 
+[6] Northcutt, C., Jiang, L., & Chuang, I. (2021). Confident learning: Estimating uncertainty in dataset labels. Journal of Artificial Intelligence Research, 70, 1373-1411.
+
