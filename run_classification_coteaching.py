@@ -25,6 +25,10 @@ from utils.codenet_utils import read_codenetdata
 from model.bert import bert_classifier_self,lstm_classifier
 from co_teaching.loss_coteaching import loss_coteaching
 
+from utils.codenet_graph_utils import get_spt_dataset,GraphClassificationDataset
+from dgl.dataloading import GraphDataLoader
+from model.gnn import GNN_codenet
+
 def boolean_string(s):
     if s not in {'False', 'True'}:
         raise ValueError('Not a valid boolean string')
@@ -64,7 +68,7 @@ args=parser.parse_args()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 assert args.dataset in ['poj','java250','python800']
-assert args.model_type in ['codebert','graphcodebert','codet5','unixcoder']
+assert args.model_type in ['codebert','graphcodebert','codet5','unixcoder','gcn','gin','ggnn','hgt']
 if args.dataset=='poj':
     num_classes=104 #poj
 elif args.dataset=='java250':
@@ -72,50 +76,68 @@ elif args.dataset=='java250':
 elif args.dataset=='python800':
     num_classes=800 #codenet python800
 
-if args.model_type=='codebert':
-    tokenizer = RobertaTokenizer.from_pretrained("microsoft/codebert-base")
-    encoder_config= RobertaConfig.from_pretrained("microsoft/codebert-base")
-    encoder_config.num_labels=num_classes
-    model_encoder = RobertaForSequenceClassification.from_pretrained("microsoft/codebert-base",config=encoder_config)
-elif args.model_type=='graphcodebert':
-    tokenizer = RobertaTokenizer.from_pretrained("microsoft/graphcodebert-base")
-    encoder_config= RobertaConfig.from_pretrained("microsoft/graphcodebert-base")
-    encoder_config.num_labels=num_classes
-    model_encoder = RobertaForSequenceClassification.from_pretrained("microsoft/graphcodebert-base",config=encoder_config)
-    model_encoder2 = RobertaForSequenceClassification.from_pretrained("microsoft/graphcodebert-base",config=encoder_config)
-elif args.model_type=='unixcoder':
-    tokenizer = RobertaTokenizer.from_pretrained("microsoft/unixcoder-base")
-    encoder_config= RobertaConfig.from_pretrained("microsoft/unixcoder-base")
-    encoder_config.num_labels=num_classes
-    model_encoder = RobertaForSequenceClassification.from_pretrained("microsoft/unixcoder-base",config=encoder_config)
-    model_encoder2 = RobertaForSequenceClassification.from_pretrained("microsoft/unixcoder-base",config=encoder_config)
-    
-if args.block_size <= 0:
-    args.block_size = tokenizer.max_len_single_sentence  # Our input block size will be the max possible for the model
-    args.block_size = min(args.block_size, tokenizer.max_len_single_sentence)
+if args.model_type not in ['gcn','gin','ggnn','hgt']:
+    if args.model_type=='codebert':
+        tokenizer = RobertaTokenizer.from_pretrained("microsoft/codebert-base")
+        encoder_config= RobertaConfig.from_pretrained("microsoft/codebert-base")
+        encoder_config.num_labels=num_classes
+        model_encoder = RobertaForSequenceClassification.from_pretrained("microsoft/codebert-base",config=encoder_config)
+    elif args.model_type=='graphcodebert':
+        tokenizer = RobertaTokenizer.from_pretrained("microsoft/graphcodebert-base")
+        encoder_config= RobertaConfig.from_pretrained("microsoft/graphcodebert-base")
+        encoder_config.num_labels=num_classes
+        model_encoder = RobertaForSequenceClassification.from_pretrained("microsoft/graphcodebert-base",config=encoder_config)
+        model_encoder2 = RobertaForSequenceClassification.from_pretrained("microsoft/graphcodebert-base",config=encoder_config)
+    elif args.model_type=='unixcoder':
+        tokenizer = RobertaTokenizer.from_pretrained("microsoft/unixcoder-base")
+        encoder_config= RobertaConfig.from_pretrained("microsoft/unixcoder-base")
+        encoder_config.num_labels=num_classes
+        model_encoder = RobertaForSequenceClassification.from_pretrained("microsoft/unixcoder-base",config=encoder_config)
+        model_encoder2 = RobertaForSequenceClassification.from_pretrained("microsoft/unixcoder-base",config=encoder_config)
 
-model_encoder.to(device)
+    if args.block_size <= 0:
+        args.block_size = tokenizer.max_len_single_sentence  # Our input block size will be the max possible for the model
+        args.block_size = min(args.block_size, tokenizer.max_len_single_sentence)
+
+    model_encoder.to(device)
 
 
-if args.dataset=='poj':
-    train_samples,valid_samples,test_samples=generate_pojdata(mislabeled_rate=args.noise_rate)
-if args.dataset in ['java250','python800']:
-    train_samples,valid_samples,test_samples=read_codenetdata(dataname=args.dataset,mislabeled_rate=args.noise_rate)
-    
-trainset=ClassificationDataset(tokenizer,args,train_samples)
-validset=ClassificationDataset(tokenizer,args,valid_samples)
-testset=ClassificationDataset(tokenizer,args,test_samples)
-print(len(trainset),len(validset),len(testset))
+if args.model_type in ['gcn','gin','ggnn','hgt']:
+    print('use gnn: ',args.model_type)
+    if args.dataset in ['java250','python800']:
+        train_samples,valid_samples,test_samples,token_vocabsize,type_vocabsize=get_spt_dataset(data=args.dataset,mislabeled_rate=args.noise_rate)
+    else:
+        raise NotImplementedError
+    trainset=GraphClassificationDataset(train_samples)
+    validset=GraphClassificationDataset(valid_samples)
+    testset=GraphClassificationDataset(test_samples)
+    print(len(trainset),len(validset),len(testset))
 
-#choose classifier: pre-trained or lstm
-model=bert_classifier_self(model_encoder,encoder_config,tokenizer,args)
-#model=lstm_classifier(encoder_config.vocab_size,128,128,num_classes)
-model=model.to(device)
-model2=copy.deepcopy(model)
+    model=GNN_codenet(256,num_classes,num_layers=5,token_vocabsize=token_vocabsize,type_vocabsize=type_vocabsize,model=args.model_type).to(device)
+    model2=copy.deepcopy(model)
+    train_dataloader=GraphDataLoader(trainset,batch_size=args.batch_size,shuffle=True)
+    valid_dataloader=GraphDataLoader(validset,batch_size=args.batch_size,shuffle=False)
+    test_dataloader=GraphDataLoader(testset,batch_size=args.batch_size,shuffle=False)
+else:
+    if args.dataset=='poj':
+        train_samples,valid_samples,test_samples=generate_pojdata(mislabeled_rate=args.noise_rate)
+    if args.dataset in ['java250','python800']:
+        train_samples,valid_samples,test_samples=read_codenetdata(dataname=args.dataset,mislabeled_rate=args.noise_rate)
 
-train_dataloader = DataLoader(trainset, shuffle=True, batch_size=args.batch_size,num_workers=0)
-valid_dataloader = DataLoader(validset, shuffle=False, batch_size=args.batch_size,num_workers=0)
-test_dataloader = DataLoader(testset, shuffle=False, batch_size=args.batch_size,num_workers=0)
+    trainset=ClassificationDataset(tokenizer,args,train_samples)
+    validset=ClassificationDataset(tokenizer,args,valid_samples)
+    testset=ClassificationDataset(tokenizer,args,test_samples)
+    print(len(trainset),len(validset),len(testset))
+
+    #choose classifier: pre-trained or lstm
+    model=bert_classifier_self(model_encoder,encoder_config,tokenizer,args)
+    #model=lstm_classifier(encoder_config.vocab_size,128,128,num_classes)
+    model=model.to(device)
+    model2=copy.deepcopy(model)
+
+    train_dataloader = DataLoader(trainset, shuffle=True, batch_size=args.batch_size,num_workers=0)
+    valid_dataloader = DataLoader(validset, shuffle=False, batch_size=args.batch_size,num_workers=0)
+    test_dataloader = DataLoader(testset, shuffle=False, batch_size=args.batch_size,num_workers=0)
 
 optimizer = optim.AdamW(model.parameters(), lr=args.lr)
 optimizer2 = optim.AdamW(model2.parameters(), lr=args.lr)
