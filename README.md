@@ -45,7 +45,7 @@ Trained-from-scratch models: LSTM, GNN-based approaches
 
 [4] Zhu, Z., Dong, Z., & Liu, Y. (2022, June). Detecting corrupted labels without training a model to predict. In International Conference on Machine Learning (pp. 27412-27427). PMLR.
 
-[5] Robust Learning of Deep Predictive Models from Noisy and Imbalanced Software Engineering Datasets. In Proceedings of the 37th IEEE/ACM International Conference on Automated Software Engineering, 2022 (not published).
+[5] Robust Learning of Deep Predictive Models from Noisy and Imbalanced Software Engineering Datasets. In Proceedings of the 37th IEEE/ACM International Conference on Automated Software Engineering, 2022.
 
 [6] Northcutt, C., Jiang, L., & Chuang, I. (2021). Confident learning: Estimating uncertainty in dataset labels. Journal of Artificial Intelligence Research, 70, 1373-1411.
 
