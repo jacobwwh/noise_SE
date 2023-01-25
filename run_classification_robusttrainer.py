@@ -293,6 +293,7 @@ def run_train_epoch(model, data_loader, current_epoch):
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+        scheduler.step()
 
         bar.set_description("epoch {} loss {}".format(current_epoch+1,record))
 
