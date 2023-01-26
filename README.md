@@ -22,8 +22,10 @@ Code summarization: CodeXGLUE   https://github.com/microsoft/CodeXGLUE/tree/main
 | ---------------- | ------ | -------- | --------- | --------- |
 | None      |   |    |     |         |
 | Influnce function [1]     |   |    |     |         |
+| TracIn [7]     |   |    |     |         |
 | Meta-weight-net [2]     |   |    |     |         |
 | Co-teaching [3]     |   |    |     |         |
+| Confident Learning [6]     |   |    |     |         |
 | Simifeat [4]     |   |    |     |         |
 | Robusttrainer [5]     |   |    |     |         |
 
