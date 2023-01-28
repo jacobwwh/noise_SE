@@ -25,6 +25,7 @@ Code summarization: CodeXGLUE   https://github.com/microsoft/CodeXGLUE/tree/main
 | TracIn [7]     |   |    |     |         |
 | Meta-weight-net [2]     |   |    |     |         |
 | Co-teaching [3]     |   |    |     |         |
+| Co-teaching+ [8]     |   |    |     |         |
 | Confident Learning [6]     |   |    |     |         |
 | Simifeat [4]     |   |    |     |         |
 | Robusttrainer [5]     |   |    |     |         |
@@ -52,4 +53,6 @@ Trained-from-scratch models: LSTM, GNN-based approaches
 [6] Northcutt, C., Jiang, L., & Chuang, I. (2021). Confident learning: Estimating uncertainty in dataset labels. Journal of Artificial Intelligence Research, 70, 1373-1411.
 
 [7] Garima Pruthi, Frederick Liu, Satyen Kale, and Mukund Sundararajan. 2020. Estimating training data influence by tracing gradient descent. Advances in Neural Information Processing Systems 33 (2020), 19920–19930.
+
+[8] Yu, X., Han, B., Yao, J., Niu, G., Tsang, I., & Sugiyama, M. (2019, May). How does disagreement help generalization against label corruption?. In International Conference on Machine Learning (pp. 7164-7173). PMLR.
 
