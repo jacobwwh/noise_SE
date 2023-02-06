@@ -67,4 +67,9 @@ def read_codenetdata(dataname,mislabeled_rate=0.2,noise_pattern='random'):
                         train_data[i][j]['label']=random_noise_label(num_classes,i)
                     elif noise_pattern=='flip':
                         train_data[i][j]['label']=(i+1)%num_classes
+                    elif noise_pattern=='pair': #for an even number of classes
+                        if i%2==0:
+                            train_data[i][j]['label']=i+1
+                        else:
+                            train_data[i][j]['label']=i-1
     return train_data,dev_data,test_data
