@@ -34,13 +34,10 @@ def boolean_string(s):
     return s == 'True'
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--metaset", type=boolean_string, default=False, help="use metaset for reweighting")
-parser.add_argument("--dataset", type=str, default='poj')
-parser.add_argument('--meta_net_hidden_size', type=int, default=100)
-parser.add_argument('--meta_net_num_layers', type=int, default=1)
-parser.add_argument('--meta_lr', type=float, default=1e-6)
-parser.add_argument('--meta_weight_decay', type=float, default=0.)
-parser.add_argument('--meta_interval', type=int, default=1)
+parser.add_argument("--dataset", type=str, default='java250')
+
+parser.add_argument('--noise_rate', type = float, help = 'corruption rate, should be less than 1', default = 0.5)
+parser.add_argument("--noise_pattern", default="random", type=str, help="Noise pattern(random/flip/pair).")
 
 parser.add_argument('--momentum', type=float, default=.9)
 parser.add_argument('--dampening', type=float, default=0.)
@@ -119,7 +116,7 @@ else:
     if args.dataset=='poj':
         train_samples,valid_samples,test_samples=generate_pojdata(mislabeled_rate=0.2)
     if args.dataset in ['java250','python800']:
-        train_samples,valid_samples,test_samples=read_codenetdata(dataname=args.dataset,mislabeled_rate=0.2)
+        train_samples,valid_samples,test_samples=read_codenetdata(dataname=args.dataset,mislabeled_rate=args.noise_rate,noise_pattern=args.noise_pattern)
 
     trainset=ClassificationDataset(tokenizer,args,train_samples)
     validset=ClassificationDataset(tokenizer,args,valid_samples)
