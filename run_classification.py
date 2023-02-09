@@ -64,7 +64,7 @@ args=parser.parse_args()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 assert args.dataset in ['poj','java250','python800']
-assert args.model_type in ['codebert','graphcodebert','codet5','unixcoder','gcn','gin','ggnn','hgt']
+assert args.model_type in ['codebert','graphcodebert','codet5','unixcoder','gcn','gin','ggnn','hgt','lstm']
 if args.dataset=='poj':
     num_classes=104 #poj
 elif args.dataset=='java250':
@@ -73,7 +73,7 @@ elif args.dataset=='python800':
     num_classes=800 #codenet python800
 
 if args.model_type not in ['gcn','gin','ggnn','hgt']:
-    if args.model_type=='codebert':
+    if args.model_type=='codebert' or args.model_type=='lstm':
         tokenizer = RobertaTokenizer.from_pretrained("microsoft/codebert-base")
         encoder_config= RobertaConfig.from_pretrained("microsoft/codebert-base")
         encoder_config.num_labels=num_classes
@@ -125,6 +125,8 @@ else:
 
     #choose classifier: pre-trained or lstm
     model=bert_classifier_self(model_encoder,encoder_config,tokenizer,args)
+    if args.model_type=='lstm':
+        model=lstm_classifier(encoder_config.vocab_size,128,128,num_classes)
     #model=lstm_classifier(encoder_config.vocab_size,128,128,num_classes)
     model=model.to(device)
 
