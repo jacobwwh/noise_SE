@@ -37,8 +37,10 @@ def boolean_string(s):
 parser = argparse.ArgumentParser()
 parser.add_argument("--dataset", type=str, default='java250')
 
-#co-teaching args
 parser.add_argument('--noise_rate', type = float, help = 'corruption rate, should be less than 1', default = 0.5)
+parser.add_argument("--noise_pattern", default="random", type=str, help="Noise pattern(random/flip/pair).")
+
+#co-teaching args
 parser.add_argument('--forget_rate', type = float, help = 'forget rate', default = None)
 parser.add_argument('--num_gradual', type = int, default = 10, help='how many epochs for linear drop rate, can be 5, 10, 15. This parameter is equal to Tk for R(T) in Co-teaching paper.')
 parser.add_argument('--exponent', type = float, default = 1, help='exponent of the forget rate, can be 0.5, 1, 2. This parameter is equal to c in Tc for R(T) in Co-teaching paper.')
@@ -68,7 +70,7 @@ args=parser.parse_args()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 assert args.dataset in ['poj','java250','python800']
-assert args.model_type in ['codebert','graphcodebert','codet5','unixcoder','gcn','gin','ggnn','hgt']
+assert args.model_type in ['codebert','graphcodebert','codet5','unixcoder','gcn','gin','ggnn','hgt','lstm']
 if args.dataset=='poj':
     num_classes=104 #poj
 elif args.dataset=='java250':
@@ -77,7 +79,7 @@ elif args.dataset=='python800':
     num_classes=800 #codenet python800
 
 if args.model_type not in ['gcn','gin','ggnn','hgt']:
-    if args.model_type=='codebert':
+    if args.model_type=='codebert' or args.model_type=='lstm':
         tokenizer = RobertaTokenizer.from_pretrained("microsoft/codebert-base")
         encoder_config= RobertaConfig.from_pretrained("microsoft/codebert-base")
         encoder_config.num_labels=num_classes
@@ -105,7 +107,7 @@ if args.model_type not in ['gcn','gin','ggnn','hgt']:
 if args.model_type in ['gcn','gin','ggnn','hgt']:
     print('use gnn: ',args.model_type)
     if args.dataset in ['java250','python800']:
-        train_samples,valid_samples,test_samples,token_vocabsize,type_vocabsize=get_spt_dataset(data=args.dataset,mislabeled_rate=args.noise_rate)
+        train_samples,valid_samples,test_samples,token_vocabsize,type_vocabsize=get_spt_dataset(data=args.dataset,mislabeled_rate=args.noise_rate,noise_pattern=args.noise_pattern)
     else:
         raise NotImplementedError
     trainset=GraphClassificationDataset(train_samples)
@@ -122,7 +124,7 @@ else:
     if args.dataset=='poj':
         train_samples,valid_samples,test_samples=generate_pojdata(mislabeled_rate=args.noise_rate)
     if args.dataset in ['java250','python800']:
-        train_samples,valid_samples,test_samples=read_codenetdata(dataname=args.dataset,mislabeled_rate=args.noise_rate)
+        train_samples,valid_samples,test_samples=read_codenetdata(dataname=args.dataset,mislabeled_rate=args.noise_rate,noise_pattern=args.noise_pattern)
 
     trainset=ClassificationDataset(tokenizer,args,train_samples)
     validset=ClassificationDataset(tokenizer,args,valid_samples)
@@ -131,7 +133,8 @@ else:
 
     #choose classifier: pre-trained or lstm
     model=bert_classifier_self(model_encoder,encoder_config,tokenizer,args)
-    #model=lstm_classifier(encoder_config.vocab_size,128,128,num_classes)
+    if args.model_type=='lstm':
+        model=lstm_classifier(encoder_config.vocab_size,128,128,num_classes)
     model=model.to(device)
     model2=copy.deepcopy(model)
 
