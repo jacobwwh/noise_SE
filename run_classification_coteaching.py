@@ -22,7 +22,7 @@ from transformers import (WEIGHTS_NAME, AdamW, get_linear_schedule_with_warmup,
                           
 from utils.poj_utils import ClassificationDataset,generate_pojdata
 from utils.codenet_utils import read_codenetdata
-from model.bert import bert_classifier_self,lstm_classifier
+from model.bert import bert_classifier_self,lstm_classifier,bert_and_linear_classifier
 from co_teaching.loss_coteaching import loss_coteaching
 
 from utils.codenet_graph_utils import get_spt_dataset,GraphClassificationDataset
@@ -132,7 +132,8 @@ else:
     print(len(trainset),len(validset),len(testset))
 
     #choose classifier: pre-trained or lstm
-    model=bert_classifier_self(model_encoder,encoder_config,tokenizer,args)
+    #model=bert_classifier_self(model_encoder,encoder_config,tokenizer,args)
+    model=bert_and_linear_classifier(model_encoder.roberta,encoder_config,tokenizer,args,num_classes) #new version of classifier
     if args.model_type=='lstm':
         model=lstm_classifier(encoder_config.vocab_size,128,128,num_classes)
     model=model.to(device)
