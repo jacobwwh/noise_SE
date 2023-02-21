@@ -270,7 +270,10 @@ def filter_by_predicted(trainset,label_issues):
 
 label_issues,label_issues_base=find_noisy(model,train_dataloader,trainset)
 filtered_trainset=filter_by_predicted(trainset,label_issues) #label_issues or label_issues_base
-filtered_train_loader=DataLoader(filtered_trainset, shuffle=True, batch_size=args.batch_size,num_workers=0)
+if args.model_type in ['gcn','gin','ggnn','hgt']:
+    filtered_train_loader=GraphDataLoader(filtered_trainset, batch_size=args.batch_size, shuffle=True)
+else:
+    filtered_train_loader=DataLoader(filtered_trainset, shuffle=True, batch_size=args.batch_size,num_workers=0)
 
 
 
