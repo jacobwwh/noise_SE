@@ -22,7 +22,7 @@ from transformers import (WEIGHTS_NAME, AdamW, get_linear_schedule_with_warmup,
                           
 from utils.poj_utils import ClassificationDataset,generate_pojdata
 from utils.codenet_utils import read_codenetdata
-from model.bert import bert_classifier_self,lstm_classifier
+from model.bert import bert_classifier_self,lstm_classifier,bert_and_linear_classifier
 
 from utils.codenet_graph_utils import get_spt_dataset,GraphClassificationDataset
 from dgl.dataloading import GraphDataLoader
@@ -41,6 +41,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--dataset", type=str, default='java250')
 
 parser.add_argument('--noise_rate', type = float, help = 'corruption rate, should be less than 1', default = 0.5)
+parser.add_argument("--noise_pattern", default="random", type=str, help="Noise pattern(random/flip/pair).")
 
 parser.add_argument('--momentum', type=float, default=.9)
 parser.add_argument('--dampening', type=float, default=0.)
@@ -67,7 +68,7 @@ args=parser.parse_args()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 assert args.dataset in ['poj','java250','python800']
-assert args.model_type in ['codebert','graphcodebert','codet5','unixcoder','gcn','gin','ggnn','hgt']
+assert args.model_type in ['codebert','graphcodebert','codet5','unixcoder','gcn','gin','ggnn','hgt','lstm']
 if args.dataset=='poj':
     num_classes=104 #poj
 elif args.dataset=='java250':
@@ -76,7 +77,7 @@ elif args.dataset=='python800':
     num_classes=800 #codenet python800
 
 if args.model_type not in ['gcn','gin','ggnn','hgt']:
-    if args.model_type=='codebert':
+    if args.model_type=='codebert' or args.model_type=='lstm':
         tokenizer = RobertaTokenizer.from_pretrained("microsoft/codebert-base")
         encoder_config= RobertaConfig.from_pretrained("microsoft/codebert-base")
         encoder_config.num_labels=num_classes
@@ -103,7 +104,7 @@ if args.model_type not in ['gcn','gin','ggnn','hgt']:
 if args.model_type in ['gcn','gin','ggnn','hgt']:
     print('use gnn: ',args.model_type)
     if args.dataset in ['java250','python800']:
-        train_samples,valid_samples,test_samples,token_vocabsize,type_vocabsize=get_spt_dataset(data=args.dataset,mislabeled_rate=args.noise_rate)
+        train_samples,valid_samples,test_samples,token_vocabsize,type_vocabsize=get_spt_dataset(data=args.dataset,mislabeled_rate=args.noise_rate,noise_pattern=args.noise_pattern)
     else:
         raise NotImplementedError
     trainset=GraphClassificationDataset(train_samples)
@@ -119,7 +120,7 @@ else:
     if args.dataset=='poj':
         train_samples,valid_samples,test_samples=generate_pojdata(mislabeled_rate=args.noise_rate)
     if args.dataset in ['java250','python800']:
-        train_samples,valid_samples,test_samples=read_codenetdata(dataname=args.dataset,mislabeled_rate=args.noise_rate)
+        train_samples,valid_samples,test_samples=read_codenetdata(dataname=args.dataset,mislabeled_rate=args.noise_rate,noise_pattern=args.noise_pattern)
         
     trainset=ClassificationDataset(tokenizer,args,train_samples)
     validset=ClassificationDataset(tokenizer,args,valid_samples)
@@ -127,8 +128,10 @@ else:
     print(len(trainset),len(validset),len(testset))
 
     #choose classifier: pre-trained or lstm
-    model=bert_classifier_self(model_encoder,encoder_config,tokenizer,args)
-    #model=lstm_classifier(encoder_config.vocab_size,128,128,num_classes)
+    #model=bert_classifier_self(model_encoder,encoder_config,tokenizer,args)
+    model=bert_and_linear_classifier(model_encoder.roberta,encoder_config,tokenizer,args,num_classes)
+    if args.model_type=='lstm':
+        model=lstm_classifier(encoder_config.vocab_size,128,128,num_classes)
     model=model.to(device)
 
     train_dataloader = DataLoader(trainset, shuffle=False, batch_size=args.batch_size,num_workers=0)
@@ -226,8 +229,6 @@ def find_noisy(model,dataloader,trainset):
     #print(len(ordered_label_issues))
     #print("The Index of Error Samples are: {}".format(",".join([str(ele) for ele in ordered_label_issues])))
 
-    #print(labels[:10])
-    #print(np.argmax(logits,1)[:10])
     # a simple baseline: directly use logits to predict noises
     label_issues_base=find_predicted_neq_given(labels,logits) 
     #label_issues_base=np.argmax(logits, axis=1) != np.asarray(labels)
@@ -269,7 +270,10 @@ def filter_by_predicted(trainset,label_issues):
 
 label_issues,label_issues_base=find_noisy(model,train_dataloader,trainset)
 filtered_trainset=filter_by_predicted(trainset,label_issues) #label_issues or label_issues_base
-filtered_train_loader=DataLoader(filtered_trainset, shuffle=True, batch_size=args.batch_size,num_workers=0)
+if args.model_type in ['gcn','gin','ggnn','hgt']:
+    filtered_train_loader=GraphDataLoader(filtered_trainset, batch_size=args.batch_size, shuffle=True)
+else:
+    filtered_train_loader=DataLoader(filtered_trainset, shuffle=True, batch_size=args.batch_size,num_workers=0)
 
 
 

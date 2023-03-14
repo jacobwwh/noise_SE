@@ -77,3 +77,26 @@ class lstm_classifier(nn.Module):
         if return_h:
             return dense_outputs,hidden     
         return dense_outputs
+
+    
+class bert_and_linear_classifier(nn.Module):   
+    '''a bert(roberta) classifier with self-defined classifier layer'''
+    def __init__(self, encoder,config,tokenizer,args,num_classes):
+        super(bert_and_linear_classifier, self).__init__()
+        self.encoder = encoder #transformer.RobertaModel
+        self.config=config
+        self.tokenizer=tokenizer
+        self.args=args
+        self.classifier=nn.Linear(config.hidden_size,num_classes)
+    
+        
+    def forward(self, input_ids=None,labels=None,return_h=False): 
+        raw_output=self.encoder(input_ids,attention_mask=input_ids.ne(1),output_hidden_states=True) #pooler_output is None if self.encoder.pooler is None
+        outputs=raw_output.last_hidden_state #(batch_size, seq_len, hidden_size)
+        pooled_outputs=outputs[:,0,:]
+        logits=self.classifier(pooled_outputs)
+        
+        if return_h:
+            return logits,pooled_outputs
+        else:
+            return logits

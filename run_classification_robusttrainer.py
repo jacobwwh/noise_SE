@@ -122,7 +122,7 @@ if args.model_type not in ['gcn','gin','ggnn','hgt']:
 if args.model_type in ['gcn','gin','ggnn','hgt']:
     print('use gnn: ',args.model_type)
     if args.dataset in ['java250','python800']:
-        train_samples,valid_samples,test_samples,token_vocabsize,type_vocabsize=get_spt_dataset(data=args.dataset,mislabeled_rate=args.noise_rate)
+        train_samples,valid_samples,test_samples,token_vocabsize,type_vocabsize=get_spt_dataset(data=args.dataset,mislabeled_rate=args.noise_rate,noise_pattern=args.noise_pattern)
     else:
         raise NotImplementedError
     trainset=GraphClassificationDataset(train_samples)
@@ -139,7 +139,7 @@ else:
     if args.dataset=='poj':
         train_samples,valid_samples,test_samples=generate_pojdata(mislabeled_rate=args.noise_rate)
     if args.dataset in ['java250','python800']:
-        train_samples,valid_samples,test_samples=read_codenetdata(dataname=args.dataset,mislabeled_rate=args.noise_rate)
+        train_samples,valid_samples,test_samples=read_codenetdata(dataname=args.dataset,mislabeled_rate=args.noise_rate,noise_pattern=args.noise_pattern)
         
     trainset=ClassificationDataset(tokenizer,args,train_samples)
     validset=ClassificationDataset(tokenizer,args,valid_samples)
@@ -149,7 +149,8 @@ else:
     #choose classifier: pre-trained or lstm
     #model=bert_classifier_self(model_encoder,encoder_config,tokenizer,args)
     model=bert_and_linear_classifier(model_encoder.roberta,encoder_config,tokenizer,args,num_classes)
-    #model=lstm_classifier(encoder_config.vocab_size,128,128,num_classes)
+    if args.model_type=='lstm':
+        model=lstm_classifier(encoder_config.vocab_size,128,128,num_classes)
     model=model.to(device)
 
     train_dataloader = DataLoader(trainset, shuffle=True, batch_size=args.batch_size,num_workers=0)
