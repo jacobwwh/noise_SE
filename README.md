@@ -1,4 +1,4 @@
-# An empirical study on noise-handling approaches for SE datasets and models
+# An Empirical Study on the Effectiveness of Noisy Label Learning for Program Understanding
 
 ## Requirements
 
@@ -8,51 +8,19 @@ transformers
 
 ## Datasets:
 
-Code classification: POJ   https://drive.google.com/file/d/0B2i-vWnOu7MxVlJwQXN6eVNONUU/view?resourcekey=0-Po3kiAifLfCCYnanCBDMHw
+Code classification: CodeNet   [Link](https://developer.ibm.com/data/project-codenet/)
 
-Code classification: CodeNet   https://developer.ibm.com/data/project-codenet/
+Code summarization: TLC   [Link](https://drive.google.com/file/d/1m4uZi0hoInYxkgrSlF23EjVasSgaXOXy/view)
 
-Code search: CodeXGLUE   https://github.com/microsoft/CodeXGLUE/tree/main/Text-Code/NL-code-search-Adv or https://github.com/microsoft/CodeXGLUE/tree/main/Text-Code/NL-code-search-WebQuery
 
-Code summarization: CodeXGLUE   https://github.com/microsoft/CodeXGLUE/tree/main/Code-Text/code-to-text
+## Models
 
-## TODO
+Trained-from-scratch models: LSTM, GNN
 
-|                  |Code classification| Code search|Code summarization (function name)|Code summarization (comment)|
-| ---------------- | ------ | -------- | --------- | --------- |
-| None      |   |    |     |         |
-| Influnce function [1]     |   |    |     |         |
-| TracIn [7]     |   |    |     |         |
-| Meta-weight-net [2]     |   |    |     |         |
-| Co-teaching [3]     |   |    |     |         |
-| Co-teaching+ [8]     |   |    |     |         |
-| Confident Learning [6]     |   |    |     |         |
-| Simifeat [4]     |   |    |     |         |
-| Robusttrainer [5]     |   |    |     |         |
+Roberta-based: CodeBERT, GraphCodeBERT, UniXCoder
 
-### Models
+Pre-trained encoder-decoder: PLBART
 
-Roberta-based: CodeBERT, (GraphCodeBERT), UniXCoder
 
-Pre-trained encoder-decoder: CodeT5, (PLBART)
 
-Trained-from-scratch models: LSTM, GNN-based approaches
-
-## References
-
-[1] Koh, P. W., & Liang, P. (2017, July). Understanding black-box predictions via influence functions. In International conference on machine learning (pp. 1885-1894). PMLR.
-
-[2] Shu, J., Xie, Q., Yi, L., Zhao, Q., Zhou, S., Xu, Z., & Meng, D. (2019). Meta-weight-net: Learning an explicit mapping for sample weighting. Advances in neural information processing systems, 32.
-
-[3] Han, B., Yao, Q., Yu, X., Niu, G., Xu, M., Hu, W., ... & Sugiyama, M. (2018). Co-teaching: Robust training of deep neural networks with extremely noisy labels. Advances in neural information processing systems, 31.
-
-[4] Zhu, Z., Dong, Z., & Liu, Y. (2022, June). Detecting corrupted labels without training a model to predict. In International Conference on Machine Learning (pp. 27412-27427). PMLR.
-
-[5] Robust Learning of Deep Predictive Models from Noisy and Imbalanced Software Engineering Datasets. In Proceedings of the 37th IEEE/ACM International Conference on Automated Software Engineering, 2022.
-
-[6] Northcutt, C., Jiang, L., & Chuang, I. (2021). Confident learning: Estimating uncertainty in dataset labels. Journal of Artificial Intelligence Research, 70, 1373-1411.
-
-[7] Garima Pruthi, Frederick Liu, Satyen Kale, and Mukund Sundararajan. 2020. Estimating training data influence by tracing gradient descent. Advances in Neural Information Processing Systems 33 (2020), 19920–19930.
-
-[8] Yu, X., Han, B., Yao, J., Niu, G., Tsang, I., & Sugiyama, M. (2019, May). How does disagreement help generalization against label corruption?. In International Conference on Machine Learning (pp. 7164-7173). PMLR.
 
