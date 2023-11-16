@@ -37,7 +37,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--dataset", type=str, default='java250')
 
 parser.add_argument('--noise_rate', type = float, help = 'corruption rate, should be less than 1', default = 0.5)
-parser.add_argument("--noise_pattern", default="random", type=str, help="Noise pattern(random/flip/pair).")
+parser.add_argument("--noise_pattern", default="random", type=str, help="Noise pattern(random/flip/).")
 
 parser.add_argument('--momentum', type=float, default=.9)
 parser.add_argument('--dampening', type=float, default=0.)
