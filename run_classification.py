@@ -20,7 +20,7 @@ from transformers import (WEIGHTS_NAME, AdamW, get_linear_schedule_with_warmup,
                           RobertaConfig, RobertaForSequenceClassification, RobertaTokenizer, RobertaModel,
                           DistilBertConfig, DistilBertForMaskedLM, DistilBertTokenizer)
                           
-from utils.poj_utils import ClassificationDataset,generate_pojdata
+from utils.dataset_utils import ClassificationDataset
 from utils.codenet_utils import read_codenetdata
 from model.bert import bert_classifier_self,lstm_classifier,bert_and_linear_classifier
 
