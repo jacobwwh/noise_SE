@@ -22,7 +22,7 @@ from transformers import (WEIGHTS_NAME, AdamW, get_linear_schedule_with_warmup,
                           RobertaConfig, RobertaForSequenceClassification, RobertaTokenizer, RobertaModel,
                           DistilBertConfig, DistilBertForMaskedLM, DistilBertTokenizer)
 
-from utils.poj_utils import ClassificationDataset, generate_pojdata
+from utils.dataset_utils import ClassificationDataset
 from utils.codenet_utils import read_codenetdata
 from model.bert import bert_classifier_self, lstm_classifier
 
@@ -38,15 +38,9 @@ def boolean_string(s):
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--metaset", type=boolean_string, default=False, help="use metaset for reweighting")
 parser.add_argument("--dataset", type=str, default='java250')
 parser.add_argument('--noise_rate', type = float, help = 'corruption rate, should be less than 1', default = 0.2)
 parser.add_argument("--noise_pattern", default="random", type=str, help="Noise pattern(random/flip/pair).")
-parser.add_argument('--meta_net_hidden_size', type=int, default=100)
-parser.add_argument('--meta_net_num_layers', type=int, default=1)
-parser.add_argument('--meta_lr', type=float, default=1e-6)
-parser.add_argument('--meta_weight_decay', type=float, default=0.)
-parser.add_argument('--meta_interval', type=int, default=1)
 
 parser.add_argument('--momentum', type=float, default=.9)
 parser.add_argument('--dampening', type=float, default=0.)
@@ -74,10 +68,8 @@ args = parser.parse_args()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 args.device = device
 
-assert args.dataset in ['poj', 'java250', 'python800']
-assert args.model_type in ['codebert', 'graphcodebert', 'codet5', 'unixcoder', 'gcn', 'gin', 'ggnn', 'hgt']
-if args.dataset == 'poj':
-    num_classes = 104  # poj
+assert args.dataset in ['java250', 'python800']
+assert args.model_type in ['codebert', 'graphcodebert', 'unixcoder','gin', 'lstm']
 elif args.dataset == 'java250':
     num_classes = 250  # codenet java250
 elif args.dataset == 'python800':
@@ -128,8 +120,6 @@ if args.model_type in ['gcn', 'gin', 'ggnn', 'hgt']:
     valid_dataloader = GraphDataLoader(validset, batch_size=args.batch_size, shuffle=False)
     test_dataloader = GraphDataLoader(testset, batch_size=1, shuffle=False)
 else:
-    if args.dataset == 'poj':
-        train_samples, valid_samples, test_samples = generate_pojdata(mislabeled_rate=0.2)
     if args.dataset in ['java250', 'python800']:
         train_samples, valid_samples, test_samples = read_codenetdata(dataname=args.dataset, mislabeled_rate=args.noise_rate, noise_pattern = args.noise_pattern)
 
