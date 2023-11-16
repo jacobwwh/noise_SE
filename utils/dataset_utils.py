@@ -26,3 +26,19 @@ def convert_examples_to_features_noisyclassification(dicts,tokenizer,args):
     padding_length = args.block_size - len(source_ids)
     source_ids+=[tokenizer.pad_token_id]*padding_length
     return InputFeatures(source_tokens,source_ids,dicts['label'],dicts['original_label'])
+
+class ClassificationDataset(Dataset):
+    def __init__(self, tokenizer, args, classified_data):
+        self.examples = []
+        for js_list in classified_data:
+            for js in js_list:
+                self.examples.append(convert_examples_to_features_noisyclassification(js,tokenizer,args))
+
+    def __len__(self):
+        return len(self.examples)
+
+    def __getitem__(self, i):
+        if self.examples[i].original_label is not None:
+            return torch.tensor(self.examples[i].input_ids),torch.tensor(self.examples[i].label),torch.tensor(self.examples[i].original_label)
+        else:
+            return torch.tensor(self.examples[i].input_ids),torch.tensor(self.examples[i].label)
