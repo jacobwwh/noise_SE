@@ -63,11 +63,9 @@ args=parser.parse_args()
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-assert args.dataset in ['poj','java250','python800']
+assert args.dataset in ['java250','python800']
 assert args.model_type in ['codebert','graphcodebert','codet5','unixcoder','gcn','gin','ggnn','hgt','lstm']
-if args.dataset=='poj':
-    num_classes=104 #poj
-elif args.dataset=='java250':
+if args.dataset=='java250':
     num_classes=250 #codenet java250
 elif args.dataset=='python800':
     num_classes=800 #codenet python800
@@ -113,8 +111,6 @@ if args.model_type in ['gcn','gin','ggnn','hgt']:
     valid_dataloader=GraphDataLoader(validset,batch_size=args.batch_size,shuffle=False)
     test_dataloader=GraphDataLoader(testset,batch_size=args.batch_size,shuffle=False)
 else:
-    if args.dataset=='poj':
-        train_samples,valid_samples,test_samples=generate_pojdata(mislabeled_rate=0.2)
     if args.dataset in ['java250','python800']:
         train_samples,valid_samples,test_samples=read_codenetdata(dataname=args.dataset,mislabeled_rate=args.noise_rate,noise_pattern=args.noise_pattern)
 
