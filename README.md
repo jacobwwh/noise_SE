@@ -1,4 +1,4 @@
-# An Empirical Study on the Effectiveness of Noisy Label Learning for Program Understanding
+# An Empirical Study on Noisy Label Learning for Program Understanding
 
 ## Requirements
 
