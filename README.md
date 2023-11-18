@@ -16,6 +16,8 @@ Vulnerability detection: Devign   [link](https://drive.google.com/file/d/1x6hoF7
 
 Code summarization: TLC   [Link](https://drive.google.com/file/d/1m4uZi0hoInYxkgrSlF23EjVasSgaXOXy/view)
 
+The samples with human evaluation results are stored in data/
+
 
 ## Models
 
