@@ -5,7 +5,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 from utils.dataset_utils import convert_examples_to_features_noisyclassification
 
-data_dir='/mnt/nvme/wenhan/poj104/'
+data_dir='poj104/'
 num_classes=104
 
 def random_noise_label(num_classes,correct_label):

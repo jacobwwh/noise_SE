@@ -6,10 +6,10 @@ import dgl.function as fn
 from dgl.data import DGLDataset
 from torch.utils.data import Dataset
 
-pythonpath='/mnt/nvme/wenhan/codenet/Project_CodeNet_Python800_spts/'
-c1000path='/mnt/nvme/wenhan/codenet/Project_CodeNet_C++1000_spts/'
-c1400path='/mnt/nvme/wenhan/codenet/Project_CodeNet_C++1400_spts/'
-javapath='/mnt/nvme/wenhan/codenet/Project_CodeNet_Java250_spts/'
+pythonpath='codenet/Project_CodeNet_Python800_spts/'
+c1000path='codenet/Project_CodeNet_C++1000_spts/'
+c1400path='codenet/Project_CodeNet_C++1400_spts/'
+javapath='codenet/Project_CodeNet_Java250_spts/'
 
 def random_noise_label(num_classes,correct_label):
     label=random.randint(0,num_classes-1)

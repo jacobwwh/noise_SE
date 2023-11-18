@@ -6,10 +6,10 @@ import random
 from tqdm import tqdm
 
 
-pythonpath='/mnt/nvme/wenhan/codenet/Project_CodeNet_Python800/'
-c1000path='/mnt/nvme/wenhan/codenet/Project_CodeNet_C++1000/'
-c1400path='/mnt/nvme/wenhan/codenet/Project_CodeNet_C++1400/'
-javapath='/mnt/nvme/wenhan/codenet/Project_CodeNet_Java250/'
+pythonpath='codenet/Project_CodeNet_Python800/'
+c1000path='codenet/Project_CodeNet_C++1000/'
+c1400path='codenet/Project_CodeNet_C++1400/'
+javapath='codenet/Project_CodeNet_Java250/'
 
 datapaths={'java250':javapath,'c++1000':c1000path,'c++1400':c1400path,'python800':pythonpath}
 
