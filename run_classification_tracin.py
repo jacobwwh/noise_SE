@@ -9,6 +9,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from tqdm import tqdm, trange
 from torch.utils.data import DataLoader, Dataset, SequentialSampler, RandomSampler, TensorDataset
+from model.bert import bert_classifier_self,lstm_classifier,bert_and_linear_classifier
 from torch.utils.data.distributed import DistributedSampler
 from tracin.tracin import *
 
@@ -24,6 +25,7 @@ from transformers import (WEIGHTS_NAME, AdamW, get_linear_schedule_with_warmup,
 
 from utils.poj_utils import ClassificationDataset, generate_pojdata
 from utils.codenet_utils import read_codenetdata
+from utils.devign_utils import generate_devigndata
 from model.bert import bert_classifier_self, lstm_classifier
 
 from utils.codenet_graph_utils import get_spt_dataset, GraphClassificationDataset
@@ -74,7 +76,7 @@ args = parser.parse_args()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 args.device = device
 
-assert args.dataset in ['poj', 'java250', 'python800']
+assert args.dataset in ['poj', 'java250', 'python800','devign']
 assert args.model_type in ['codebert', 'graphcodebert', 'codet5', 'unixcoder', 'gcn', 'gin', 'ggnn', 'hgt']
 if args.dataset == 'poj':
     num_classes = 104  # poj
@@ -82,6 +84,8 @@ elif args.dataset == 'java250':
     num_classes = 250  # codenet java250
 elif args.dataset == 'python800':
     num_classes = 800  # codenet python800
+elif args.dataset=='devign':
+    num_classes = 2
 
 if args.model_type not in ['gcn', 'gin', 'ggnn', 'hgt']:
     if args.model_type == 'codebert':
@@ -117,7 +121,8 @@ if args.model_type in ['gcn', 'gin', 'ggnn', 'hgt']:
                                                                                                       mislabeled_rate=args.noise_rate, noise_pattern = args.noise_pattern)
     else:
         raise NotImplementedError
-    trainset = GraphClassificationDataset(train_samples)
+    #trainset = GraphClassificationDataset(train_samples)
+    trainset = GraphClassificationDataset(test_samples)
     validset = GraphClassificationDataset(valid_samples)
     testset = GraphClassificationDataset(test_samples)
     print(len(trainset), len(validset), len(testset))
@@ -132,21 +137,16 @@ else:
         train_samples, valid_samples, test_samples = generate_pojdata(mislabeled_rate=0.2)
     if args.dataset in ['java250', 'python800']:
         train_samples, valid_samples, test_samples = read_codenetdata(dataname=args.dataset, mislabeled_rate=args.noise_rate, noise_pattern = args.noise_pattern)
+    if args.dataset=='devign':
+        train_samples, valid_samples, test_samples = generate_devigndata()
 
-    trainset = ClassificationDataset(tokenizer, args, test_samples)
+    trainset = ClassificationDataset(tokenizer, args, train_samples)
     validset = ClassificationDataset(tokenizer, args, valid_samples)
     testset = ClassificationDataset(tokenizer, args, test_samples)
-    print('len train sample ', len(train_samples))
-    print('len test sample ', len(test_samples))
-    print('len train samples ', len(trainset.examples))
-    print('len testset ', len(testset.examples))
-
-    # train_subset = torch.utils.data.Subset(trainset, range(50))
-    # test_subset = torch.utils.data.Subset(testset, range(20))
-    # print(len(trainset), len(validset), len(testset))
 
     # choose classifier: pre-trained or lstm
-    pre_model = bert_classifier_self(pre_model_encoder, encoder_config, tokenizer, args)
+    #pre_model = bert_classifier_self(pre_model_encoder, encoder_config, tokenizer, args)
+    pre_model = bert_and_linear_classifier(pre_model_encoder.roberta, encoder_config, tokenizer, args, num_classes)
     # model=lstm_classifier(encoder_config.vocab_size,128,128,num_classes)
     pre_model = pre_model.to(device)
     train_dataloader = DataLoader(trainset, shuffle=False, batch_size=1, num_workers=0)
@@ -154,9 +154,9 @@ else:
     test_dataloader = DataLoader(testset, shuffle=False, batch_size=1, num_workers=0)
 
 ckpt_path = os.path.join(args.ckpt_path, args.model_type)
-paths  = os.listdir(ckpt_path)
+paths  = os.listdir(args.ckpt_path)
 for i,path in enumerate(paths):
-    paths[i] = os.path.join(os.path.join(os.path.abspath(ckpt_path), path), 'model.bin')
+    paths[i] = os.path.join(os.path.join(os.path.abspath(args.ckpt_path), path), 'model.bin')
 score_matrix, idxs = calculate_tracin_score(
         args=args,
         model = pre_model,
@@ -164,19 +164,12 @@ score_matrix, idxs = calculate_tracin_score(
         train_dataloader = train_dataloader,
         test_dataloader = test_dataloader,
         nu_for_each_epoch = 1e-5)
-# exist = (score_matrix != 0)
-# num = score_matrix.sum(axis = 1)
-# den = exist.sum(axis = 1) + 0.01
-# avg = num / den
 
 st = np.argsort(score_matrix)
+print('st is ', st)
 indexes = st[int(st.shape[0] * (1-args.noise_rate)) :]
-#print('indexes len', len(indexes))
 another_indexes = st[:int(st.shape[0] * args.noise_rate)]
 noisy_index = [idxs[x] for x in indexes]
-# print('originial index is ', idxs)
-# print('indexes is ', indexes )
-# print('noisy_index is ', noisy_index)
 another_index = [idxs[x] for x in another_indexes]
 fp = 0
 tp = 0
@@ -195,18 +188,20 @@ prefix = './' + str(precision) + '_' + str(recall) + '_' + args.model_type + '_'
 with open(prefix, 'w') as f:
     f.write(prefix)
 
-inequal = 0
-tt = 0
-true_indexes = []
-for index in st:
-    label = trainset.examples[index].label
-    ori_label = trainset.examples[index].original_label
-    tt += 1
-    if label != ori_label:
-        inequal += 1
-        true_indexes.append(index)
-print('noise rate inequa: ', inequal, ' /  total: ', tt)
-# print('ground truth index is ', true_indexes)
+# inequal = 0
+# tt = 0
+# true_indexes = []
+# for index in st:
+#     # label = trainset.examples[index]['label']
+#     # ori_label = trainset.examples[index]['original_label']
+#     label = trainset.examples[index].label
+#     ori_label = trainset.examples[index].original_label
+#     tt += 1
+#     if label != ori_label:
+#         inequal += 1
+#         true_indexes.append(index)
+# print('noise rate inequa: ', inequal, ' /  total: ', tt)
+# # print('ground truth index is ', true_indexes)
 
 fp = 0
 tp = 0
@@ -219,8 +214,6 @@ for nindex in another_index:
         tp += 1
 aprecision = float(tp / (fp + tp))
 arecall = float(tp / (len(trainset.examples) * args.noise_rate))
-# print('another precision ', aprecision)
-# print('anotherrecall ', arecall)
 if args.model_type not in ['gcn', 'gin', 'ggnn', 'hgt']:
     if args.model_type == 'codebert':
         tokenizer = RobertaTokenizer.from_pretrained("microsoft/codebert-base")
@@ -250,17 +243,10 @@ if args.model_type not in ['gcn', 'gin', 'ggnn', 'hgt']:
 
 if args.model_type in ['gcn', 'gin', 'ggnn', 'hgt']:
     print('use gnn: ', args.model_type)
-    # if args.dataset in ['java250', 'python800']:
-    #     train_samples, valid_samples, test_samples, token_vocabsize, type_vocabsize = get_spt_dataset(data=args.dataset,
-    #                                                                                                   mislabeled_rate=args.noise_rate)
-    # else:
-    #     raise NotImplementedError
     trainset = GraphClassificationDataset(train_samples)
-    print('previous example len ', len(trainset.examples))
     for example in trainset.examples:
         if example.index in noisy_index:
             trainset.examples.remove(example)
-    print('new example len ', len(trainset.examples))
     validset = GraphClassificationDataset(valid_samples)
     testset = GraphClassificationDataset(test_samples)
     print(len(trainset), len(validset), len(testset))
@@ -272,10 +258,6 @@ if args.model_type in ['gcn', 'gin', 'ggnn', 'hgt']:
     test_dataloader = GraphDataLoader(testset, batch_size=args.batch_size, shuffle=False)
 
 else:
-    # if args.dataset == 'poj':
-    #     train_samples, valid_samples, test_samples = generate_pojdata(mislabeled_rate=0.2)
-    # if args.dataset in ['java250', 'python800']:
-    #     train_samples, valid_samples, test_samples = read_codenetdata(dataname=args.dataset, mislabeled_rate=0.2)
 
     trainset = ClassificationDataset(tokenizer, args, train_samples)
     print('previous example len ', len(trainset.examples))
@@ -288,8 +270,7 @@ else:
     print(len(trainset), len(validset), len(testset))
 
     # choose classifier: pre-trained or lstm
-    model = bert_classifier_self(model_encoder, encoder_config, tokenizer, args)
-    # model=lstm_classifier(encoder_config.vocab_size,128,128,num_classes)
+    model = bert_and_linear_classifier(model_encoder.roberta, encoder_config, tokenizer, args, num_classes)
     model = model.to(device)
 
     train_dataloader = DataLoader(trainset, shuffle=True, batch_size=args.batch_size, num_workers=0)
@@ -318,8 +299,6 @@ def evaluate(model, dataloader):
         inputs = batch[1].to(device)
         label = batch[2].to(device)
         with torch.no_grad():
-            # lm_loss,logit = model(inputs,label)
-            # eval_loss += lm_loss.mean().item()
             logit = model(inputs)
             eval_loss = F.cross_entropy(logit, label.long(), reduction='mean')
             logits.append(logit.cpu().numpy())
@@ -351,7 +330,7 @@ best_acc = 0.0
 best_valid_acc = 0
 
 model.zero_grad()
-out_path = '../result/'
+out_path = f'./result/tracin_{args.model_type}_{args.noise_pattern}_{str(args.noise_rate)}'
 for epoch in range(args.epochs):
     bar = tqdm(train_dataloader, total=len(train_dataloader))
     tr_num = 0

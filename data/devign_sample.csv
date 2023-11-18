@@ -1,0 +1,8349 @@
+f293709c6af7a65a9bcec09cdba7a60183657a3e,"void tcg_exec_init(unsigned long tb_size)
+
+{
+
+    cpu_gen_init();
+
+    code_gen_alloc(tb_size);
+
+    page_init();
+
+#if defined(CONFIG_SOFTMMU)
+
+    /* There's no guest base to take into account, so go ahead and
+
+       initialize the prologue now.  */
+
+    tcg_prologue_init(&tcg_ctx);
+
+#endif
+
+}
+",1,23200
+73581afe01b41d0028afb6b14f5493568cf1be3d,"static int decode_frame_header(NUTContext *nut, int64_t *pts, int *stream_id,
+
+                               uint8_t *header_idx, int frame_code)
+
+{
+
+    AVFormatContext *s = nut->avf;
+
+    AVIOContext *bc    = s->pb;
+
+    StreamContext *stc;
+
+    int size, flags, size_mul, pts_delta, i, reserved_count;
+
+    uint64_t tmp;
+
+
+
+    if (avio_tell(bc) > nut->last_syncpoint_pos + nut->max_distance) {
+
+        av_log(s, AV_LOG_ERROR,
+
+               ""Last frame must have been damaged %""PRId64"" > %""PRId64"" + %d\n"",
+
+               avio_tell(bc), nut->last_syncpoint_pos, nut->max_distance);
+
+        return AVERROR_INVALIDDATA;
+
+    }
+
+
+
+    flags          = nut->frame_code[frame_code].flags;
+
+    size_mul       = nut->frame_code[frame_code].size_mul;
+
+    size           = nut->frame_code[frame_code].size_lsb;
+
+    *stream_id     = nut->frame_code[frame_code].stream_id;
+
+    pts_delta      = nut->frame_code[frame_code].pts_delta;
+
+    reserved_count = nut->frame_code[frame_code].reserved_count;
+
+    *header_idx    = nut->frame_code[frame_code].header_idx;
+
+
+
+    if (flags & FLAG_INVALID)
+
+        return AVERROR_INVALIDDATA;
+
+    if (flags & FLAG_CODED)
+
+        flags ^= ffio_read_varlen(bc);
+
+    if (flags & FLAG_STREAM_ID) {
+
+        GET_V(*stream_id, tmp < s->nb_streams);
+
+    }
+
+    stc = &nut->stream[*stream_id];
+
+    if (flags & FLAG_CODED_PTS) {
+
+        int coded_pts = ffio_read_varlen(bc);
+
+        // FIXME check last_pts validity?
+
+        if (coded_pts < (1 << stc->msb_pts_shift)) {
+
+            *pts = ff_lsb2full(stc, coded_pts);
+
+        } else
+
+            *pts = coded_pts - (1 << stc->msb_pts_shift);
+
+    } else
+
+        *pts = stc->last_pts + pts_delta;
+
+    if (flags & FLAG_SIZE_MSB)
+
+        size += size_mul * ffio_read_varlen(bc);
+
+    if (flags & FLAG_MATCH_TIME)
+
+        get_s(bc);
+
+    if (flags & FLAG_HEADER_IDX)
+
+        *header_idx = ffio_read_varlen(bc);
+
+    if (flags & FLAG_RESERVED)
+
+        reserved_count = ffio_read_varlen(bc);
+
+    for (i = 0; i < reserved_count; i++)
+
+        ffio_read_varlen(bc);
+
+
+
+    if (*header_idx >= (unsigned)nut->header_count) {
+
+        av_log(s, AV_LOG_ERROR, ""header_idx invalid\n"");
+
+        return AVERROR_INVALIDDATA;
+
+    }
+
+    if (size > 4096)
+
+        *header_idx = 0;
+
+    size -= nut->header_len[*header_idx];
+
+
+
+    if (flags & FLAG_CHECKSUM) {
+
+        avio_rb32(bc); // FIXME check this
+
+    } else if (size > 2 * nut->max_distance || FFABS(stc->last_pts - *pts) >
+
+               stc->max_pts_distance) {
+
+        av_log(s, AV_LOG_ERROR, ""frame size > 2max_distance and no checksum\n"");
+
+        return AVERROR_INVALIDDATA;
+
+    }
+
+
+
+    stc->last_pts   = *pts;
+
+    stc->last_flags = flags;
+
+
+
+    return size;
+
+}
+",1,20044
+ef397e88e96d4a798bd190bcd0c43865c3725ae2,"void ppc40x_chip_reset (CPUState *env)
+
+{
+
+    target_ulong dbsr;
+
+
+
+    printf(""Reset PowerPC chip\n"");
+
+    cpu_ppc_reset(env);
+
+    /* XXX: TODO reset all internal peripherals */
+
+    dbsr = env->spr[SPR_40x_DBSR];
+
+    dbsr &= ~0x00000300;
+
+    dbsr |= 0x00000200;
+
+    env->spr[SPR_40x_DBSR] = dbsr;
+
+    cpu_loop_exit();
+
+}
+",1,12057
+c8b835954ae4aef797112afda3b52f8dfe3c7b74,"static int xan_huffman_decode(unsigned char *dest, int dest_len,
+
+                              const unsigned char *src, int src_len)
+
+{
+
+    unsigned char byte = *src++;
+
+    unsigned char ival = byte + 0x16;
+
+    const unsigned char * ptr = src + byte*2;
+
+    int ptr_len = src_len - 1 - byte*2;
+
+    unsigned char val = ival;
+
+    unsigned char *dest_end = dest + dest_len;
+
+    GetBitContext gb;
+
+
+
+    if (ptr_len < 0)
+
+        return AVERROR_INVALIDDATA;
+
+
+
+    init_get_bits(&gb, ptr, ptr_len * 8);
+
+
+
+    while ( val != 0x16 ) {
+
+        val = src[val - 0x17 + get_bits1(&gb) * byte];
+
+
+
+        if ( val < 0x16 ) {
+
+            if (dest >= dest_end)
+
+                return 0;
+
+            *dest++ = val;
+
+            val = ival;
+
+        }
+
+    }
+
+
+
+    return 0;
+
+}
+",1,5130
+4527ec2216109867498edc3ac8a17fd879b5d017,"static int decode_blocks(SnowContext *s){
+
+    int x, y;
+
+    int w= s->b_width;
+
+    int h= s->b_height;
+
+    int res;
+
+
+
+    for(y=0; y<h; y++){
+
+        for(x=0; x<w; x++){
+
+
+
+            if ((res = decode_q_branch(s, 0, x, y)) < 0)
+
+                return res;
+
+        }
+
+    }
+
+    return 0;
+
+}",1,5360
+0008afc59c240271827d8a0fc747179da905050f,"DVMuxContext* dv_init_mux(AVFormatContext* s)
+
+{
+
+    DVMuxContext *c;
+
+    AVStream *vst = NULL;
+
+    int i;
+
+
+
+    /* we support at most 1 video and 2 audio streams */
+
+    if (s->nb_streams > 3)
+
+        return NULL;
+
+
+
+    c = av_mallocz(sizeof(DVMuxContext));
+
+    if (!c)
+
+        return NULL;
+
+
+
+    c->n_ast = 0;
+
+    c->ast[0] = c->ast[1] = NULL;
+
+
+
+    /* We have to sort out where audio and where video stream is */
+
+    for (i=0; i<s->nb_streams; i++) {
+
+         switch (s->streams[i]->codec->codec_type) {
+
+         case CODEC_TYPE_VIDEO:
+
+               vst = s->streams[i];
+
+               break;
+
+         case CODEC_TYPE_AUDIO:
+
+             c->ast[c->n_ast++] = s->streams[i];
+
+             break;
+
+         default:
+
+               goto bail_out;
+
+         }
+
+    }
+
+
+
+    /* Some checks -- DV format is very picky about its incoming streams */
+
+    if (!vst || vst->codec->codec_id != CODEC_ID_DVVIDEO)
+
+        goto bail_out;
+
+    for (i=0; i<c->n_ast; i++) {
+
+        if (c->ast[i] && (c->ast[i]->codec->codec_id != CODEC_ID_PCM_S16LE ||
+
+                          c->ast[i]->codec->sample_rate != 48000 ||
+
+                          c->ast[i]->codec->channels != 2))
+
+            goto bail_out;
+
+    }
+
+    c->sys = dv_codec_profile(vst->codec);
+
+    if (!c->sys)
+
+        goto bail_out;
+
+
+
+    if((c->n_ast > 1) && (c->sys->n_difchan < 2)) {
+
+        /* only 1 stereo pair is allowed in 25Mbps mode */
+
+        goto bail_out;
+
+    }
+
+
+
+    /* Ok, everything seems to be in working order */
+
+    c->frames = 0;
+
+    c->has_audio = 0;
+
+    c->has_video = 0;
+
+    c->start_time = (time_t)s->timestamp;
+
+
+
+    for (i=0; i<c->n_ast; i++) {
+
+        if (c->ast[i] && av_fifo_init(&c->audio_data[i], 100*AVCODEC_MAX_AUDIO_FRAME_SIZE) < 0) {
+
+            while (i>0) {
+
+                i--;
+
+                av_fifo_free(&c->audio_data[i]);
+
+            }
+
+            goto bail_out;
+
+        }
+
+    }
+
+
+
+    return c;
+
+
+
+bail_out:
+
+    av_free(c);
+
+    return NULL;
+
+}
+",1,4229
+faadf50e2962dd54175647a80bd6fc4319c91973,"static void init_excp_620 (CPUPPCState *env)
+
+{
+
+#if !defined(CONFIG_USER_ONLY)
+
+    env->excp_vectors[POWERPC_EXCP_RESET]    = 0x00000100;
+
+    env->excp_vectors[POWERPC_EXCP_MCHECK]   = 0x00000200;
+
+    env->excp_vectors[POWERPC_EXCP_DSI]      = 0x00000300;
+
+    env->excp_vectors[POWERPC_EXCP_ISI]      = 0x00000400;
+
+    env->excp_vectors[POWERPC_EXCP_EXTERNAL] = 0x00000500;
+
+    env->excp_vectors[POWERPC_EXCP_ALIGN]    = 0x00000600;
+
+    env->excp_vectors[POWERPC_EXCP_PROGRAM]  = 0x00000700;
+
+    env->excp_vectors[POWERPC_EXCP_FPU]      = 0x00000800;
+
+    env->excp_vectors[POWERPC_EXCP_DECR]     = 0x00000900;
+
+    env->excp_vectors[POWERPC_EXCP_SYSCALL]  = 0x00000C00;
+
+    env->excp_vectors[POWERPC_EXCP_TRACE]    = 0x00000D00;
+
+    env->excp_vectors[POWERPC_EXCP_FPA]      = 0x00000E00;
+
+    env->excp_vectors[POWERPC_EXCP_PERFM]    = 0x00000F00;
+
+    env->excp_vectors[POWERPC_EXCP_IABR]     = 0x00001300;
+
+    env->excp_vectors[POWERPC_EXCP_SMI]      = 0x00001400;
+
+    /* Hardware reset vector */
+
+    env->hreset_vector = 0x0000000000000100ULL; /* ? */
+
+#endif
+
+}
+",1,3547
+240ce26a0533a6e5ee472789fbfbd9f7f939197e,"static int decode_extended_mips16_opc (CPUMIPSState *env, DisasContext *ctx,
+
+                                       int *is_branch)
+
+{
+
+    int extend = cpu_lduw_code(env, ctx->pc + 2);
+
+    int op, rx, ry, funct, sa;
+
+    int16_t imm, offset;
+
+
+
+    ctx->opcode = (ctx->opcode << 16) | extend;
+
+    op = (ctx->opcode >> 11) & 0x1f;
+
+    sa = (ctx->opcode >> 22) & 0x1f;
+
+    funct = (ctx->opcode >> 8) & 0x7;
+
+    rx = xlat((ctx->opcode >> 8) & 0x7);
+
+    ry = xlat((ctx->opcode >> 5) & 0x7);
+
+    offset = imm = (int16_t) (((ctx->opcode >> 16) & 0x1f) << 11
+
+                              | ((ctx->opcode >> 21) & 0x3f) << 5
+
+                              | (ctx->opcode & 0x1f));
+
+
+
+    /* The extended opcodes cleverly reuse the opcodes from their 16-bit
+
+       counterparts.  */
+
+    switch (op) {
+
+    case M16_OPC_ADDIUSP:
+
+        gen_arith_imm(ctx, OPC_ADDIU, rx, 29, imm);
+
+        break;
+
+    case M16_OPC_ADDIUPC:
+
+        gen_addiupc(ctx, rx, imm, 0, 1);
+
+        break;
+
+    case M16_OPC_B:
+
+        gen_compute_branch(ctx, OPC_BEQ, 4, 0, 0, offset << 1);
+
+        /* No delay slot, so just process as a normal instruction */
+
+        break;
+
+    case M16_OPC_BEQZ:
+
+        gen_compute_branch(ctx, OPC_BEQ, 4, rx, 0, offset << 1);
+
+        /* No delay slot, so just process as a normal instruction */
+
+        break;
+
+    case M16_OPC_BNEQZ:
+
+        gen_compute_branch(ctx, OPC_BNE, 4, rx, 0, offset << 1);
+
+        /* No delay slot, so just process as a normal instruction */
+
+        break;
+
+    case M16_OPC_SHIFT:
+
+        switch (ctx->opcode & 0x3) {
+
+        case 0x0:
+
+            gen_shift_imm(ctx, OPC_SLL, rx, ry, sa);
+
+            break;
+
+        case 0x1:
+
+#if defined(TARGET_MIPS64)
+
+            check_mips_64(ctx);
+
+            gen_shift_imm(ctx, OPC_DSLL, rx, ry, sa);
+
+#else
+
+            generate_exception(ctx, EXCP_RI);
+
+#endif
+
+            break;
+
+        case 0x2:
+
+            gen_shift_imm(ctx, OPC_SRL, rx, ry, sa);
+
+            break;
+
+        case 0x3:
+
+            gen_shift_imm(ctx, OPC_SRA, rx, ry, sa);
+
+            break;
+
+        }
+
+        break;
+
+#if defined(TARGET_MIPS64)
+
+    case M16_OPC_LD:
+
+            check_mips_64(ctx);
+
+        gen_ld(ctx, OPC_LD, ry, rx, offset);
+
+        break;
+
+#endif
+
+    case M16_OPC_RRIA:
+
+        imm = ctx->opcode & 0xf;
+
+        imm = imm | ((ctx->opcode >> 20) & 0x7f) << 4;
+
+        imm = imm | ((ctx->opcode >> 16) & 0xf) << 11;
+
+        imm = (int16_t) (imm << 1) >> 1;
+
+        if ((ctx->opcode >> 4) & 0x1) {
+
+#if defined(TARGET_MIPS64)
+
+            check_mips_64(ctx);
+
+            gen_arith_imm(ctx, OPC_DADDIU, ry, rx, imm);
+
+#else
+
+            generate_exception(ctx, EXCP_RI);
+
+#endif
+
+        } else {
+
+            gen_arith_imm(ctx, OPC_ADDIU, ry, rx, imm);
+
+        }
+
+        break;
+
+    case M16_OPC_ADDIU8:
+
+        gen_arith_imm(ctx, OPC_ADDIU, rx, rx, imm);
+
+        break;
+
+    case M16_OPC_SLTI:
+
+        gen_slt_imm(ctx, OPC_SLTI, 24, rx, imm);
+
+        break;
+
+    case M16_OPC_SLTIU:
+
+        gen_slt_imm(ctx, OPC_SLTIU, 24, rx, imm);
+
+        break;
+
+    case M16_OPC_I8:
+
+        switch (funct) {
+
+        case I8_BTEQZ:
+
+            gen_compute_branch(ctx, OPC_BEQ, 4, 24, 0, offset << 1);
+
+            break;
+
+        case I8_BTNEZ:
+
+            gen_compute_branch(ctx, OPC_BNE, 4, 24, 0, offset << 1);
+
+            break;
+
+        case I8_SWRASP:
+
+            gen_st(ctx, OPC_SW, 31, 29, imm);
+
+            break;
+
+        case I8_ADJSP:
+
+            gen_arith_imm(ctx, OPC_ADDIU, 29, 29, imm);
+
+            break;
+
+        case I8_SVRS:
+
+            {
+
+                int xsregs = (ctx->opcode >> 24) & 0x7;
+
+                int aregs = (ctx->opcode >> 16) & 0xf;
+
+                int do_ra = (ctx->opcode >> 6) & 0x1;
+
+                int do_s0 = (ctx->opcode >> 5) & 0x1;
+
+                int do_s1 = (ctx->opcode >> 4) & 0x1;
+
+                int framesize = (((ctx->opcode >> 20) & 0xf) << 4
+
+                                 | (ctx->opcode & 0xf)) << 3;
+
+
+
+                if (ctx->opcode & (1 << 7)) {
+
+                    gen_mips16_save(ctx, xsregs, aregs,
+
+                                    do_ra, do_s0, do_s1,
+
+                                    framesize);
+
+                } else {
+
+                    gen_mips16_restore(ctx, xsregs, aregs,
+
+                                       do_ra, do_s0, do_s1,
+
+                                       framesize);
+
+                }
+
+            }
+
+            break;
+
+        default:
+
+            generate_exception(ctx, EXCP_RI);
+
+            break;
+
+        }
+
+        break;
+
+    case M16_OPC_LI:
+
+        tcg_gen_movi_tl(cpu_gpr[rx], (uint16_t) imm);
+
+        break;
+
+    case M16_OPC_CMPI:
+
+        tcg_gen_xori_tl(cpu_gpr[24], cpu_gpr[rx], (uint16_t) imm);
+
+        break;
+
+#if defined(TARGET_MIPS64)
+
+    case M16_OPC_SD:
+
+        gen_st(ctx, OPC_SD, ry, rx, offset);
+
+        break;
+
+#endif
+
+    case M16_OPC_LB:
+
+        gen_ld(ctx, OPC_LB, ry, rx, offset);
+
+        break;
+
+    case M16_OPC_LH:
+
+        gen_ld(ctx, OPC_LH, ry, rx, offset);
+
+        break;
+
+    case M16_OPC_LWSP:
+
+        gen_ld(ctx, OPC_LW, rx, 29, offset);
+
+        break;
+
+    case M16_OPC_LW:
+
+        gen_ld(ctx, OPC_LW, ry, rx, offset);
+
+        break;
+
+    case M16_OPC_LBU:
+
+        gen_ld(ctx, OPC_LBU, ry, rx, offset);
+
+        break;
+
+    case M16_OPC_LHU:
+
+        gen_ld(ctx, OPC_LHU, ry, rx, offset);
+
+        break;
+
+    case M16_OPC_LWPC:
+
+        gen_ld(ctx, OPC_LWPC, rx, 0, offset);
+
+        break;
+
+#if defined(TARGET_MIPS64)
+
+    case M16_OPC_LWU:
+
+        gen_ld(ctx, OPC_LWU, ry, rx, offset);
+
+        break;
+
+#endif
+
+    case M16_OPC_SB:
+
+        gen_st(ctx, OPC_SB, ry, rx, offset);
+
+        break;
+
+    case M16_OPC_SH:
+
+        gen_st(ctx, OPC_SH, ry, rx, offset);
+
+        break;
+
+    case M16_OPC_SWSP:
+
+        gen_st(ctx, OPC_SW, rx, 29, offset);
+
+        break;
+
+    case M16_OPC_SW:
+
+        gen_st(ctx, OPC_SW, ry, rx, offset);
+
+        break;
+
+#if defined(TARGET_MIPS64)
+
+    case M16_OPC_I64:
+
+        decode_i64_mips16(ctx, ry, funct, offset, 1);
+
+        break;
+
+#endif
+
+    default:
+
+        generate_exception(ctx, EXCP_RI);
+
+        break;
+
+    }
+
+
+
+    return 4;
+
+}
+",1,21993
+f41a6c8f3aeb51332bb359038cb504d3fb562a52,"static int decode_mb_info(IVI5DecContext *ctx, IVIBandDesc *band,
+
+                          IVITile *tile, AVCodecContext *avctx)
+
+{
+
+    int         x, y, mv_x, mv_y, mv_delta, offs, mb_offset,
+
+                mv_scale, blks_per_mb;
+
+    IVIMbInfo   *mb, *ref_mb;
+
+    int         row_offset = band->mb_size * band->pitch;
+
+
+
+    mb     = tile->mbs;
+
+    ref_mb = tile->ref_mbs;
+
+    offs   = tile->ypos * band->pitch + tile->xpos;
+
+
+
+    /* scale factor for motion vectors */
+
+    mv_scale = (ctx->planes[0].bands[0].mb_size >> 3) - (band->mb_size >> 3);
+
+    mv_x = mv_y = 0;
+
+
+
+    for (y = tile->ypos; y < (tile->ypos + tile->height); y += band->mb_size) {
+
+        mb_offset = offs;
+
+
+
+        for (x = tile->xpos; x < (tile->xpos + tile->width); x += band->mb_size) {
+
+            mb->xpos     = x;
+
+            mb->ypos     = y;
+
+            mb->buf_offs = mb_offset;
+
+
+
+            if (get_bits1(&ctx->gb)) {
+
+                if (ctx->frame_type == FRAMETYPE_INTRA) {
+
+                    av_log(avctx, AV_LOG_ERROR, ""Empty macroblock in an INTRA picture!\n"");
+
+                    return -1;
+
+                }
+
+                mb->type = 1; /* empty macroblocks are always INTER */
+
+                mb->cbp  = 0; /* all blocks are empty */
+
+
+
+                mb->q_delta = 0;
+
+                if (!band->plane && !band->band_num && (ctx->frame_flags & 8)) {
+
+                    mb->q_delta = get_vlc2(&ctx->gb, ctx->mb_vlc.tab->table,
+
+                                           IVI_VLC_BITS, 1);
+
+                    mb->q_delta = IVI_TOSIGNED(mb->q_delta);
+
+                }
+
+
+
+                mb->mv_x = mb->mv_y = 0; /* no motion vector coded */
+
+                if (band->inherit_mv){
+
+                    /* motion vector inheritance */
+
+                    if (mv_scale) {
+
+                        mb->mv_x = ivi_scale_mv(ref_mb->mv_x, mv_scale);
+
+                        mb->mv_y = ivi_scale_mv(ref_mb->mv_y, mv_scale);
+
+                    } else {
+
+                        mb->mv_x = ref_mb->mv_x;
+
+                        mb->mv_y = ref_mb->mv_y;
+
+                    }
+
+                }
+
+            } else {
+
+                if (band->inherit_mv) {
+
+                    mb->type = ref_mb->type; /* copy mb_type from corresponding reference mb */
+
+                } else if (ctx->frame_type == FRAMETYPE_INTRA) {
+
+                    mb->type = 0; /* mb_type is always INTRA for intra-frames */
+
+                } else {
+
+                    mb->type = get_bits1(&ctx->gb);
+
+                }
+
+
+
+                blks_per_mb = band->mb_size != band->blk_size ? 4 : 1;
+
+                mb->cbp = get_bits(&ctx->gb, blks_per_mb);
+
+
+
+                mb->q_delta = 0;
+
+                if (band->qdelta_present) {
+
+                    if (band->inherit_qdelta) {
+
+                        if (ref_mb) mb->q_delta = ref_mb->q_delta;
+
+                    } else if (mb->cbp || (!band->plane && !band->band_num &&
+
+                                           (ctx->frame_flags & 8))) {
+
+                        mb->q_delta = get_vlc2(&ctx->gb, ctx->mb_vlc.tab->table,
+
+                                               IVI_VLC_BITS, 1);
+
+                        mb->q_delta = IVI_TOSIGNED(mb->q_delta);
+
+                    }
+
+                }
+
+
+
+                if (!mb->type) {
+
+                    mb->mv_x = mb->mv_y = 0; /* there is no motion vector in intra-macroblocks */
+
+                } else {
+
+                    if (band->inherit_mv){
+
+                        /* motion vector inheritance */
+
+                        if (mv_scale) {
+
+                            mb->mv_x = ivi_scale_mv(ref_mb->mv_x, mv_scale);
+
+                            mb->mv_y = ivi_scale_mv(ref_mb->mv_y, mv_scale);
+
+                        } else {
+
+                            mb->mv_x = ref_mb->mv_x;
+
+                            mb->mv_y = ref_mb->mv_y;
+
+                        }
+
+                    } else {
+
+                        /* decode motion vector deltas */
+
+                        mv_delta = get_vlc2(&ctx->gb, ctx->mb_vlc.tab->table,
+
+                                            IVI_VLC_BITS, 1);
+
+                        mv_y += IVI_TOSIGNED(mv_delta);
+
+                        mv_delta = get_vlc2(&ctx->gb, ctx->mb_vlc.tab->table,
+
+                                            IVI_VLC_BITS, 1);
+
+                        mv_x += IVI_TOSIGNED(mv_delta);
+
+                        mb->mv_x = mv_x;
+
+                        mb->mv_y = mv_y;
+
+                    }
+
+                }
+
+            }
+
+
+
+            mb++;
+
+            if (ref_mb)
+
+                ref_mb++;
+
+            mb_offset += band->mb_size;
+
+        }
+
+
+
+        offs += row_offset;
+
+    }
+
+
+
+    align_get_bits(&ctx->gb);
+
+
+
+    return 0;
+
+}
+",1,8708
+60fe637bf0e4d7989e21e50f52526444765c63b4,"void qemu_file_skip(QEMUFile *f, int size)
+
+{
+
+    if (f->buf_index + size <= f->buf_size) {
+
+        f->buf_index += size;
+
+    }
+
+}
+",1,8477
+3e9fab690d59ac15956c3733fe0794ce1ae4c4af,"void hmp_block_set_io_throttle(Monitor *mon, const QDict *qdict)
+
+{
+
+    Error *err = NULL;
+
+
+
+    qmp_block_set_io_throttle(qdict_get_str(qdict, ""device""),
+
+                              qdict_get_int(qdict, ""bps""),
+
+                              qdict_get_int(qdict, ""bps_rd""),
+
+                              qdict_get_int(qdict, ""bps_wr""),
+
+                              qdict_get_int(qdict, ""iops""),
+
+                              qdict_get_int(qdict, ""iops_rd""),
+
+                              qdict_get_int(qdict, ""iops_wr""), &err);
+
+    hmp_handle_error(mon, &err);
+
+}
+",1,5533
+24cfe91a220204e56394c85bca51799b77df175b,"static void read_apic(AVFormatContext *s, AVIOContext *pb, int taglen, char *tag, ID3v2ExtraMeta **extra_meta)
+
+{
+
+    int enc, pic_type;
+
+    char             mimetype[64];
+
+    const CodecMime     *mime = ff_id3v2_mime_tags;
+
+    enum AVCodecID           id = AV_CODEC_ID_NONE;
+
+    ID3v2ExtraMetaAPIC  *apic = NULL;
+
+    ID3v2ExtraMeta *new_extra = NULL;
+
+    int64_t               end = avio_tell(pb) + taglen;
+
+
+
+    if (taglen <= 4)
+
+        goto fail;
+
+
+
+    new_extra = av_mallocz(sizeof(*new_extra));
+
+    apic      = av_mallocz(sizeof(*apic));
+
+    if (!new_extra || !apic)
+
+        goto fail;
+
+
+
+    enc = avio_r8(pb);
+
+    taglen--;
+
+
+
+    /* mimetype */
+
+    taglen -= avio_get_str(pb, taglen, mimetype, sizeof(mimetype));
+
+    while (mime->id != AV_CODEC_ID_NONE) {
+
+        if (!av_strncasecmp(mime->str, mimetype, sizeof(mimetype))) {
+
+            id = mime->id;
+
+            break;
+
+        }
+
+        mime++;
+
+    }
+
+    if (id == AV_CODEC_ID_NONE) {
+
+        av_log(s, AV_LOG_WARNING, ""Unknown attached picture mimetype: %s, skipping.\n"", mimetype);
+
+        goto fail;
+
+    }
+
+    apic->id = id;
+
+
+
+    /* picture type */
+
+    pic_type = avio_r8(pb);
+
+    taglen--;
+
+    if (pic_type < 0 || pic_type >= FF_ARRAY_ELEMS(ff_id3v2_picture_types)) {
+
+        av_log(s, AV_LOG_WARNING, ""Unknown attached picture type %d.\n"", pic_type);
+
+        pic_type = 0;
+
+    }
+
+    apic->type = ff_id3v2_picture_types[pic_type];
+
+
+
+    /* description and picture data */
+
+    if (decode_str(s, pb, enc, &apic->description, &taglen) < 0) {
+
+        av_log(s, AV_LOG_ERROR, ""Error decoding attached picture description.\n"");
+
+        goto fail;
+
+    }
+
+
+
+    apic->buf = av_buffer_alloc(taglen);
+
+    if (!apic->buf || !taglen || avio_read(pb, apic->buf->data, taglen) != taglen)
+
+        goto fail;
+
+
+
+    new_extra->tag    = ""APIC"";
+
+    new_extra->data   = apic;
+
+    new_extra->next   = *extra_meta;
+
+    *extra_meta       = new_extra;
+
+
+
+    return;
+
+
+
+fail:
+
+    if (apic)
+
+        free_apic(apic);
+
+    av_freep(&new_extra);
+
+    avio_seek(pb, end, SEEK_SET);
+
+}
+",1,6127
+8b2fce0d3f5a56c40c28899c9237210ca8f9cf75,"inline static void RENAME(hcscale)(uint16_t *dst, long dstWidth, uint8_t *src1, uint8_t *src2,
+
+                                   int srcW, int xInc, int flags, int canMMX2BeUsed, int16_t *hChrFilter,
+
+                                   int16_t *hChrFilterPos, int hChrFilterSize, void *funnyUVCode,
+
+                                   int srcFormat, uint8_t *formatConvBuffer, int16_t *mmx2Filter,
+
+                                   int32_t *mmx2FilterPos, uint8_t *pal)
+
+{
+
+    if (srcFormat==PIX_FMT_YUYV422)
+
+    {
+
+        RENAME(yuy2ToUV)(formatConvBuffer, formatConvBuffer+2048, src1, src2, srcW);
+
+        src1= formatConvBuffer;
+
+        src2= formatConvBuffer+2048;
+
+    }
+
+    else if (srcFormat==PIX_FMT_UYVY422)
+
+    {
+
+        RENAME(uyvyToUV)(formatConvBuffer, formatConvBuffer+2048, src1, src2, srcW);
+
+        src1= formatConvBuffer;
+
+        src2= formatConvBuffer+2048;
+
+    }
+
+    else if (srcFormat==PIX_FMT_RGB32)
+
+    {
+
+        RENAME(bgr32ToUV)(formatConvBuffer, formatConvBuffer+2048, src1, src2, srcW);
+
+        src1= formatConvBuffer;
+
+        src2= formatConvBuffer+2048;
+
+    }
+
+    else if (srcFormat==PIX_FMT_BGR24)
+
+    {
+
+        RENAME(bgr24ToUV)(formatConvBuffer, formatConvBuffer+2048, src1, src2, srcW);
+
+        src1= formatConvBuffer;
+
+        src2= formatConvBuffer+2048;
+
+    }
+
+    else if (srcFormat==PIX_FMT_BGR565)
+
+    {
+
+        RENAME(bgr16ToUV)(formatConvBuffer, formatConvBuffer+2048, src1, src2, srcW);
+
+        src1= formatConvBuffer;
+
+        src2= formatConvBuffer+2048;
+
+    }
+
+    else if (srcFormat==PIX_FMT_BGR555)
+
+    {
+
+        RENAME(bgr15ToUV)(formatConvBuffer, formatConvBuffer+2048, src1, src2, srcW);
+
+        src1= formatConvBuffer;
+
+        src2= formatConvBuffer+2048;
+
+    }
+
+    else if (srcFormat==PIX_FMT_BGR32)
+
+    {
+
+        RENAME(rgb32ToUV)(formatConvBuffer, formatConvBuffer+2048, src1, src2, srcW);
+
+        src1= formatConvBuffer;
+
+        src2= formatConvBuffer+2048;
+
+    }
+
+    else if (srcFormat==PIX_FMT_RGB24)
+
+    {
+
+        RENAME(rgb24ToUV)(formatConvBuffer, formatConvBuffer+2048, src1, src2, srcW);
+
+        src1= formatConvBuffer;
+
+        src2= formatConvBuffer+2048;
+
+    }
+
+    else if (srcFormat==PIX_FMT_RGB565)
+
+    {
+
+        RENAME(rgb16ToUV)(formatConvBuffer, formatConvBuffer+2048, src1, src2, srcW);
+
+        src1= formatConvBuffer;
+
+        src2= formatConvBuffer+2048;
+
+    }
+
+    else if (srcFormat==PIX_FMT_RGB555)
+
+    {
+
+        RENAME(rgb15ToUV)(formatConvBuffer, formatConvBuffer+2048, src1, src2, srcW);
+
+        src1= formatConvBuffer;
+
+        src2= formatConvBuffer+2048;
+
+    }
+
+    else if (isGray(srcFormat))
+
+    {
+
+        return;
+
+    }
+
+    else if (srcFormat==PIX_FMT_RGB8 || srcFormat==PIX_FMT_BGR8 || srcFormat==PIX_FMT_PAL8 || srcFormat==PIX_FMT_BGR4_BYTE  || srcFormat==PIX_FMT_RGB4_BYTE)
+
+    {
+
+        RENAME(palToUV)(formatConvBuffer, formatConvBuffer+2048, src1, src2, srcW, pal);
+
+        src1= formatConvBuffer;
+
+        src2= formatConvBuffer+2048;
+
+    }
+
+
+
+#ifdef HAVE_MMX
+
+    // use the new MMX scaler if the mmx2 can't be used (it is faster than the x86 ASM one)
+
+    if (!(flags&SWS_FAST_BILINEAR) || (!canMMX2BeUsed))
+
+#else
+
+    if (!(flags&SWS_FAST_BILINEAR))
+
+#endif
+
+    {
+
+        RENAME(hScale)(dst     , dstWidth, src1, srcW, xInc, hChrFilter, hChrFilterPos, hChrFilterSize);
+
+        RENAME(hScale)(dst+2048, dstWidth, src2, srcW, xInc, hChrFilter, hChrFilterPos, hChrFilterSize);
+
+    }
+
+    else // Fast Bilinear upscale / crap downscale
+
+    {
+
+#if defined(ARCH_X86)
+
+#ifdef HAVE_MMX2
+
+        int i;
+
+#if defined(PIC)
+
+        uint64_t ebxsave __attribute__((aligned(8)));
+
+#endif
+
+        if (canMMX2BeUsed)
+
+        {
+
+            asm volatile(
+
+#if defined(PIC)
+
+            ""mov          %%""REG_b"", %6         \n\t""
+
+#endif
+
+            ""pxor             %%mm7, %%mm7      \n\t""
+
+            ""mov                 %0, %%""REG_c""  \n\t""
+
+            ""mov                 %1, %%""REG_D""  \n\t""
+
+            ""mov                 %2, %%""REG_d""  \n\t""
+
+            ""mov                 %3, %%""REG_b""  \n\t""
+
+            ""xor          %%""REG_a"", %%""REG_a""  \n\t"" // i
+
+            PREFETCH""   (%%""REG_c"")             \n\t""
+
+            PREFETCH"" 32(%%""REG_c"")             \n\t""
+
+            PREFETCH"" 64(%%""REG_c"")             \n\t""
+
+
+
+#ifdef ARCH_X86_64
+
+
+
+#define FUNNY_UV_CODE \
+
+            ""movl       (%%""REG_b""), %%esi      \n\t""\
+
+            ""call               *%4             \n\t""\
+
+            ""movl (%%""REG_b"", %%""REG_a""), %%esi \n\t""\
+
+            ""add          %%""REG_S"", %%""REG_c""  \n\t""\
+
+            ""add          %%""REG_a"", %%""REG_D""  \n\t""\
+
+            ""xor          %%""REG_a"", %%""REG_a""  \n\t""\
+
+
+
+#else
+
+
+
+#define FUNNY_UV_CODE \
+
+            ""movl       (%%""REG_b""), %%esi      \n\t""\
+
+            ""call               *%4             \n\t""\
+
+            ""addl (%%""REG_b"", %%""REG_a""), %%""REG_c"" \n\t""\
+
+            ""add          %%""REG_a"", %%""REG_D""  \n\t""\
+
+            ""xor          %%""REG_a"", %%""REG_a""  \n\t""\
+
+
+
+#endif /* ARCH_X86_64 */
+
+
+
+FUNNY_UV_CODE
+
+FUNNY_UV_CODE
+
+FUNNY_UV_CODE
+
+FUNNY_UV_CODE
+
+            ""xor          %%""REG_a"", %%""REG_a""  \n\t"" // i
+
+            ""mov                 %5, %%""REG_c""  \n\t"" // src
+
+            ""mov                 %1, %%""REG_D""  \n\t"" // buf1
+
+            ""add              $4096, %%""REG_D""  \n\t""
+
+            PREFETCH""   (%%""REG_c"")             \n\t""
+
+            PREFETCH"" 32(%%""REG_c"")             \n\t""
+
+            PREFETCH"" 64(%%""REG_c"")             \n\t""
+
+
+
+FUNNY_UV_CODE
+
+FUNNY_UV_CODE
+
+FUNNY_UV_CODE
+
+FUNNY_UV_CODE
+
+
+
+#if defined(PIC)
+
+            ""mov %6, %%""REG_b""    \n\t""
+
+#endif
+
+            :: ""m"" (src1), ""m"" (dst), ""m"" (mmx2Filter), ""m"" (mmx2FilterPos),
+
+            ""m"" (funnyUVCode), ""m"" (src2)
+
+#if defined(PIC)
+
+            ,""m"" (ebxsave)
+
+#endif
+
+            : ""%""REG_a, ""%""REG_c, ""%""REG_d, ""%""REG_S, ""%""REG_D
+
+#if !defined(PIC)
+
+             ,""%""REG_b
+
+#endif
+
+            );
+
+            for (i=dstWidth-1; (i*xInc)>>16 >=srcW-1; i--)
+
+            {
+
+                //printf(""%d %d %d\n"", dstWidth, i, srcW);
+
+                dst[i] = src1[srcW-1]*128;
+
+                dst[i+2048] = src2[srcW-1]*128;
+
+            }
+
+        }
+
+        else
+
+        {
+
+#endif /* HAVE_MMX2 */
+
+            long xInc_shr16 = (long) (xInc >> 16);
+
+            uint16_t xInc_mask = xInc & 0xffff;
+
+            asm volatile(
+
+            ""xor %%""REG_a"", %%""REG_a""               \n\t"" // i
+
+            ""xor %%""REG_d"", %%""REG_d""               \n\t"" // xx
+
+            ""xorl    %%ecx, %%ecx                   \n\t"" // 2*xalpha
+
+            ASMALIGN(4)
+
+            ""1:                                     \n\t""
+
+            ""mov        %0, %%""REG_S""               \n\t""
+
+            ""movzbl  (%%""REG_S"", %%""REG_d""), %%edi  \n\t"" //src[xx]
+
+            ""movzbl 1(%%""REG_S"", %%""REG_d""), %%esi  \n\t"" //src[xx+1]
+
+            ""subl    %%edi, %%esi                   \n\t"" //src[xx+1] - src[xx]
+
+            ""imull   %%ecx, %%esi                   \n\t"" //(src[xx+1] - src[xx])*2*xalpha
+
+            ""shll      $16, %%edi                   \n\t""
+
+            ""addl    %%edi, %%esi                   \n\t"" //src[xx+1]*2*xalpha + src[xx]*(1-2*xalpha)
+
+            ""mov        %1, %%""REG_D""               \n\t""
+
+            ""shrl       $9, %%esi                   \n\t""
+
+            ""movw     %%si, (%%""REG_D"", %%""REG_a"", 2)   \n\t""
+
+
+
+            ""movzbl    (%5, %%""REG_d""), %%edi       \n\t"" //src[xx]
+
+            ""movzbl   1(%5, %%""REG_d""), %%esi       \n\t"" //src[xx+1]
+
+            ""subl    %%edi, %%esi                   \n\t"" //src[xx+1] - src[xx]
+
+            ""imull   %%ecx, %%esi                   \n\t"" //(src[xx+1] - src[xx])*2*xalpha
+
+            ""shll      $16, %%edi                   \n\t""
+
+            ""addl    %%edi, %%esi                   \n\t"" //src[xx+1]*2*xalpha + src[xx]*(1-2*xalpha)
+
+            ""mov        %1, %%""REG_D""               \n\t""
+
+            ""shrl       $9, %%esi                   \n\t""
+
+            ""movw     %%si, 4096(%%""REG_D"", %%""REG_a"", 2)   \n\t""
+
+
+
+            ""addw       %4, %%cx                    \n\t"" //2*xalpha += xInc&0xFF
+
+            ""adc        %3, %%""REG_d""               \n\t"" //xx+= xInc>>8 + carry
+
+            ""add        $1, %%""REG_a""               \n\t""
+
+            ""cmp        %2, %%""REG_a""               \n\t""
+
+            "" jb        1b                          \n\t""
+
+
+
+/* GCC-3.3 makes MPlayer crash on IA-32 machines when using ""g"" operand here,
+
+   which is needed to support GCC-4.0 */
+
+#if defined(ARCH_X86_64) && ((__GNUC__ > 3) || (__GNUC__ == 3 && __GNUC_MINOR__ >= 4))
+
+            :: ""m"" (src1), ""m"" (dst), ""g"" ((long)dstWidth), ""m"" (xInc_shr16), ""m"" (xInc_mask),
+
+#else
+
+            :: ""m"" (src1), ""m"" (dst), ""m"" ((long)dstWidth), ""m"" (xInc_shr16), ""m"" (xInc_mask),
+
+#endif
+
+            ""r"" (src2)
+
+            : ""%""REG_a, ""%""REG_d, ""%ecx"", ""%""REG_D, ""%esi""
+
+            );
+
+#ifdef HAVE_MMX2
+
+        } //if MMX2 can't be used
+
+#endif
+
+#else
+
+        int i;
+
+        unsigned int xpos=0;
+
+        for (i=0;i<dstWidth;i++)
+
+        {
+
+            register unsigned int xx=xpos>>16;
+
+            register unsigned int xalpha=(xpos&0xFFFF)>>9;
+
+            dst[i]=(src1[xx]*(xalpha^127)+src1[xx+1]*xalpha);
+
+            dst[i+2048]=(src2[xx]*(xalpha^127)+src2[xx+1]*xalpha);
+
+            /* slower
+
+            dst[i]= (src1[xx]<<7) + (src1[xx+1] - src1[xx])*xalpha;
+
+            dst[i+2048]=(src2[xx]<<7) + (src2[xx+1] - src2[xx])*xalpha;
+
+            */
+
+            xpos+=xInc;
+
+        }
+
+#endif /* defined(ARCH_X86) */
+
+    }
+
+}
+",1,14319
+7149fce2cac0474a5fbc5b47add1158cd8bb283e,"static void render_line(int x0, int y0, int x1, int y1, float *buf)
+
+{
+
+    int dy  = y1 - y0;
+
+    int adx = x1 - x0;
+
+    int ady = FFABS(dy);
+
+    int sy  = dy < 0 ? -1 : 1;
+
+    buf[x0] = ff_vorbis_floor1_inverse_db_table[y0];
+
+    if (ady*2 <= adx) { // optimized common case
+
+        render_line_unrolled(x0, y0, x1, sy, ady, adx, buf);
+
+    } else {
+
+        int base = dy / adx;
+
+        int x    = x0;
+
+        int y    = y0;
+
+        int err  = -adx;
+
+        ady -= FFABS(base) * adx;
+
+        while (++x < x1) {
+
+            y += base;
+
+            err += ady;
+
+            if (err >= 0) {
+
+                err -= adx;
+
+                y   += sy;
+
+            }
+
+            buf[x] = ff_vorbis_floor1_inverse_db_table[y];
+
+        }
+
+    }
+
+}
+",1,15155
+ffdc5d09e498bee8176c9e35df101c01c546a738,"static int decode_header(EXRContext *s)
+
+{
+
+    int magic_number, version, i, flags, sar = 0;
+
+    int layer_match = 0;
+
+
+
+    s->current_channel_offset = 0;
+
+    s->xmin               = ~0;
+
+    s->xmax               = ~0;
+
+    s->ymin               = ~0;
+
+    s->ymax               = ~0;
+
+    s->xdelta             = ~0;
+
+    s->ydelta             = ~0;
+
+    s->channel_offsets[0] = -1;
+
+    s->channel_offsets[1] = -1;
+
+    s->channel_offsets[2] = -1;
+
+    s->channel_offsets[3] = -1;
+
+    s->pixel_type         = EXR_UNKNOWN;
+
+    s->compression        = EXR_UNKN;
+
+    s->nb_channels        = 0;
+
+    s->w                  = 0;
+
+    s->h                  = 0;
+
+    s->tile_attr.xSize    = -1;
+
+    s->tile_attr.ySize    = -1;
+
+    s->is_tile            = 0;
+
+    s->is_luma            = 0;
+
+
+
+    if (bytestream2_get_bytes_left(&s->gb) < 10) {
+
+        av_log(s->avctx, AV_LOG_ERROR, ""Header too short to parse.\n"");
+
+        return AVERROR_INVALIDDATA;
+
+    }
+
+
+
+    magic_number = bytestream2_get_le32(&s->gb);
+
+    if (magic_number != 20000630) {
+
+        /* As per documentation of OpenEXR, it is supposed to be
+
+         * int 20000630 little-endian */
+
+        av_log(s->avctx, AV_LOG_ERROR, ""Wrong magic number %d.\n"", magic_number);
+
+        return AVERROR_INVALIDDATA;
+
+    }
+
+
+
+    version = bytestream2_get_byte(&s->gb);
+
+    if (version != 2) {
+
+        avpriv_report_missing_feature(s->avctx, ""Version %d"", version);
+
+        return AVERROR_PATCHWELCOME;
+
+    }
+
+
+
+    flags = bytestream2_get_le24(&s->gb);
+
+
+
+    if (flags == 0x00)
+
+        s->is_tile = 0;
+
+    else if (flags & 0x02)
+
+        s->is_tile = 1;
+
+    else{
+
+        avpriv_report_missing_feature(s->avctx, ""flags %d"", flags);
+
+        return AVERROR_PATCHWELCOME;
+
+    }
+
+
+
+    // Parse the header
+
+    while (bytestream2_get_bytes_left(&s->gb) > 0 && *s->gb.buffer) {
+
+        int var_size;
+
+        if ((var_size = check_header_variable(s, ""channels"",
+
+                                              ""chlist"", 38)) >= 0) {
+
+            GetByteContext ch_gb;
+
+            if (!var_size)
+
+                return AVERROR_INVALIDDATA;
+
+
+
+            bytestream2_init(&ch_gb, s->gb.buffer, var_size);
+
+
+
+            while (bytestream2_get_bytes_left(&ch_gb) >= 19) {
+
+                EXRChannel *channel;
+
+                enum ExrPixelType current_pixel_type;
+
+                int channel_index = -1;
+
+                int xsub, ysub;
+
+
+
+                if (strcmp(s->layer, """") != 0) {
+
+                    if (strncmp(ch_gb.buffer, s->layer, strlen(s->layer)) == 0) {
+
+                        layer_match = 1;
+
+                        av_log(s->avctx, AV_LOG_INFO,
+
+                               ""Channel match layer : %s.\n"", ch_gb.buffer);
+
+                        ch_gb.buffer += strlen(s->layer);
+
+                        if (*ch_gb.buffer == '.')
+
+                            ch_gb.buffer++;         /* skip dot if not given */
+
+                    } else {
+
+                        av_log(s->avctx, AV_LOG_INFO,
+
+                               ""Channel doesn't match layer : %s.\n"", ch_gb.buffer);
+
+                    }
+
+                } else {
+
+                    layer_match = 1;
+
+                }
+
+
+
+                if (layer_match) { /* only search channel if the layer match is valid */
+
+                    if (!strcmp(ch_gb.buffer, ""R"") ||
+
+                        !strcmp(ch_gb.buffer, ""X"") ||
+
+                        !strcmp(ch_gb.buffer, ""U"")) {
+
+                        channel_index = 0;
+
+                        s->is_luma = 0;
+
+                    } else if (!strcmp(ch_gb.buffer, ""G"") ||
+
+                               !strcmp(ch_gb.buffer, ""V"")) {
+
+                        channel_index = 1;
+
+                        s->is_luma = 0;
+
+                    } else if (!strcmp(ch_gb.buffer, ""Y"")) {
+
+                        channel_index = 1;
+
+                        s->is_luma = 1;
+
+                    } else if (!strcmp(ch_gb.buffer, ""B"") ||
+
+                               !strcmp(ch_gb.buffer, ""Z"") ||
+
+                               !strcmp(ch_gb.buffer, ""W"")){
+
+                               channel_index = 2;
+
+                        s->is_luma = 0;
+
+                    } else if (!strcmp(ch_gb.buffer, ""A"")) {
+
+                        channel_index = 3;
+
+                    } else {
+
+                        av_log(s->avctx, AV_LOG_WARNING,
+
+                               ""Unsupported channel %.256s.\n"", ch_gb.buffer);
+
+                    }
+
+                }
+
+
+
+                /* skip until you get a 0 */
+
+                while (bytestream2_get_bytes_left(&ch_gb) > 0 &&
+
+                       bytestream2_get_byte(&ch_gb))
+
+                    continue;
+
+
+
+                if (bytestream2_get_bytes_left(&ch_gb) < 4) {
+
+                    av_log(s->avctx, AV_LOG_ERROR, ""Incomplete header.\n"");
+
+                    return AVERROR_INVALIDDATA;
+
+                }
+
+
+
+                current_pixel_type = bytestream2_get_le32(&ch_gb);
+
+                if (current_pixel_type >= EXR_UNKNOWN) {
+
+                    avpriv_report_missing_feature(s->avctx, ""Pixel type %d"",
+
+                                                  current_pixel_type);
+
+                    return AVERROR_PATCHWELCOME;
+
+                }
+
+
+
+                bytestream2_skip(&ch_gb, 4);
+
+                xsub = bytestream2_get_le32(&ch_gb);
+
+                ysub = bytestream2_get_le32(&ch_gb);
+
+
+
+                if (xsub != 1 || ysub != 1) {
+
+                    avpriv_report_missing_feature(s->avctx,
+
+                                                  ""Subsampling %dx%d"",
+
+                                                  xsub, ysub);
+
+                    return AVERROR_PATCHWELCOME;
+
+                }
+
+
+
+                if (s->channel_offsets[channel_index] == -1){/* channel have not been previously assign */
+
+                    if (channel_index >= 0) {
+
+                        if (s->pixel_type != EXR_UNKNOWN &&
+
+                            s->pixel_type != current_pixel_type) {
+
+                            av_log(s->avctx, AV_LOG_ERROR,
+
+                                   ""RGB channels not of the same depth.\n"");
+
+                            return AVERROR_INVALIDDATA;
+
+                        }
+
+                        s->pixel_type                     = current_pixel_type;
+
+                        s->channel_offsets[channel_index] = s->current_channel_offset;
+
+                    }
+
+                }
+
+
+
+                s->channels = av_realloc(s->channels,
+
+                                         ++s->nb_channels * sizeof(EXRChannel));
+
+                if (!s->channels)
+
+                    return AVERROR(ENOMEM);
+
+                channel             = &s->channels[s->nb_channels - 1];
+
+                channel->pixel_type = current_pixel_type;
+
+                channel->xsub       = xsub;
+
+                channel->ysub       = ysub;
+
+
+
+                s->current_channel_offset += 1 << current_pixel_type;
+
+            }
+
+
+
+            /* Check if all channels are set with an offset or if the channels
+
+             * are causing an overflow  */
+
+            if (!s->is_luma){/* if we expected to have at least 3 channels */
+
+                if (FFMIN3(s->channel_offsets[0],
+
+                           s->channel_offsets[1],
+
+                           s->channel_offsets[2]) < 0) {
+
+                    if (s->channel_offsets[0] < 0)
+
+                        av_log(s->avctx, AV_LOG_ERROR, ""Missing red channel.\n"");
+
+                    if (s->channel_offsets[1] < 0)
+
+                        av_log(s->avctx, AV_LOG_ERROR, ""Missing green channel.\n"");
+
+                    if (s->channel_offsets[2] < 0)
+
+                        av_log(s->avctx, AV_LOG_ERROR, ""Missing blue channel.\n"");
+
+                    return AVERROR_INVALIDDATA;
+
+                }
+
+            }
+
+
+
+            // skip one last byte and update main gb
+
+            s->gb.buffer = ch_gb.buffer + 1;
+
+            continue;
+
+        } else if ((var_size = check_header_variable(s, ""dataWindow"", ""box2i"",
+
+                                                     31)) >= 0) {
+
+            if (!var_size)
+
+                return AVERROR_INVALIDDATA;
+
+
+
+            s->xmin   = bytestream2_get_le32(&s->gb);
+
+            s->ymin   = bytestream2_get_le32(&s->gb);
+
+            s->xmax   = bytestream2_get_le32(&s->gb);
+
+            s->ymax   = bytestream2_get_le32(&s->gb);
+
+            s->xdelta = (s->xmax - s->xmin) + 1;
+
+            s->ydelta = (s->ymax - s->ymin) + 1;
+
+
+
+            continue;
+
+        } else if ((var_size = check_header_variable(s, ""displayWindow"",
+
+                                                     ""box2i"", 34)) >= 0) {
+
+            if (!var_size)
+
+                return AVERROR_INVALIDDATA;
+
+
+
+            bytestream2_skip(&s->gb, 8);
+
+            s->w = bytestream2_get_le32(&s->gb) + 1;
+
+            s->h = bytestream2_get_le32(&s->gb) + 1;
+
+
+
+            continue;
+
+        } else if ((var_size = check_header_variable(s, ""lineOrder"",
+
+                                                     ""lineOrder"", 25)) >= 0) {
+
+            int line_order;
+
+            if (!var_size)
+
+                return AVERROR_INVALIDDATA;
+
+
+
+            line_order = bytestream2_get_byte(&s->gb);
+
+            av_log(s->avctx, AV_LOG_DEBUG, ""line order: %d.\n"", line_order);
+
+            if (line_order > 2) {
+
+                av_log(s->avctx, AV_LOG_ERROR, ""Unknown line order.\n"");
+
+                return AVERROR_INVALIDDATA;
+
+            }
+
+
+
+            continue;
+
+        } else if ((var_size = check_header_variable(s, ""pixelAspectRatio"",
+
+                                                     ""float"", 31)) >= 0) {
+
+            if (!var_size)
+
+                return AVERROR_INVALIDDATA;
+
+
+
+            sar = bytestream2_get_le32(&s->gb);
+
+
+
+            continue;
+
+        } else if ((var_size = check_header_variable(s, ""compression"",
+
+                                                     ""compression"", 29)) >= 0) {
+
+            if (!var_size)
+
+                return AVERROR_INVALIDDATA;
+
+
+
+            if (s->compression == EXR_UNKN)
+
+                s->compression = bytestream2_get_byte(&s->gb);
+
+            else
+
+                av_log(s->avctx, AV_LOG_WARNING,
+
+                       ""Found more than one compression attribute.\n"");
+
+
+
+            continue;
+
+        } else if ((var_size = check_header_variable(s, ""tiles"",
+
+                                                     ""tiledesc"", 22)) >= 0) {
+
+            char tileLevel;
+
+
+
+            if (!s->is_tile)
+
+                av_log(s->avctx, AV_LOG_WARNING,
+
+                       ""Found tile attribute and scanline flags. Exr will be interpreted as scanline.\n"");
+
+
+
+            s->tile_attr.xSize = bytestream2_get_le32(&s->gb);
+
+            s->tile_attr.ySize = bytestream2_get_le32(&s->gb);
+
+
+
+            tileLevel = bytestream2_get_byte(&s->gb);
+
+            s->tile_attr.level_mode = tileLevel & 0x0f;
+
+            s->tile_attr.level_round = (tileLevel >> 4) & 0x0f;
+
+
+
+            if (s->tile_attr.level_mode >= EXR_TILE_LEVEL_UNKNOWN){
+
+                avpriv_report_missing_feature(s->avctx, ""Tile level mode %d"",
+
+                                              s->tile_attr.level_mode);
+
+                return AVERROR_PATCHWELCOME;
+
+            }
+
+
+
+            if (s->tile_attr.level_round >= EXR_TILE_ROUND_UNKNOWN) {
+
+                avpriv_report_missing_feature(s->avctx, ""Tile level round %d"",
+
+                                              s->tile_attr.level_round);
+
+                return AVERROR_PATCHWELCOME;
+
+            }
+
+
+
+            continue;
+
+        }
+
+
+
+        // Check if there are enough bytes for a header
+
+        if (bytestream2_get_bytes_left(&s->gb) <= 9) {
+
+            av_log(s->avctx, AV_LOG_ERROR, ""Incomplete header\n"");
+
+            return AVERROR_INVALIDDATA;
+
+        }
+
+
+
+        // Process unknown variables
+
+        for (i = 0; i < 2; i++) // value_name and value_type
+
+            while (bytestream2_get_byte(&s->gb) != 0);
+
+
+
+        // Skip variable length
+
+        bytestream2_skip(&s->gb, bytestream2_get_le32(&s->gb));
+
+    }
+
+
+
+    ff_set_sar(s->avctx, av_d2q(av_int2float(sar), 255));
+
+
+
+    if (s->compression == EXR_UNKN) {
+
+        av_log(s->avctx, AV_LOG_ERROR, ""Missing compression attribute.\n"");
+
+        return AVERROR_INVALIDDATA;
+
+    }
+
+
+
+    if (s->is_tile) {
+
+        if (s->tile_attr.xSize < 1 || s->tile_attr.ySize < 1) {
+
+            av_log(s->avctx, AV_LOG_ERROR, ""Invalid tile attribute.\n"");
+
+            return AVERROR_INVALIDDATA;
+
+        }
+
+    }
+
+
+
+    if (bytestream2_get_bytes_left(&s->gb) <= 0) {
+
+        av_log(s->avctx, AV_LOG_ERROR, ""Incomplete frame.\n"");
+
+        return AVERROR_INVALIDDATA;
+
+    }
+
+
+
+    // aaand we are done
+
+    bytestream2_skip(&s->gb, 1);
+
+    return 0;
+
+}
+",1,26750
+09b9418c6d085a0728372aa760ebd10128a020b1,"static target_long monitor_get_xer (const struct MonitorDef *md, int val)
+
+{
+
+    CPUState *env = mon_get_cpu();
+
+    if (!env)
+
+        return 0;
+
+    return env->xer;
+
+}
+",1,22964
+233aa5c2d1cf4655ffe335025a68cf5454f87dad,"static void tcp_wait_for_connect(void *opaque)
+
+{
+
+    MigrationState *s = opaque;
+
+    int val, ret;
+
+    socklen_t valsize = sizeof(val);
+
+
+
+    DPRINTF(""connect completed\n"");
+
+    do {
+
+        ret = getsockopt(s->fd, SOL_SOCKET, SO_ERROR, (void *) &val, &valsize);
+
+    } while (ret == -1 && (socket_error()) == EINTR);
+
+
+
+    if (ret < 0) {
+
+        migrate_fd_error(s);
+
+        return;
+
+    }
+
+
+
+    qemu_set_fd_handler2(s->fd, NULL, NULL, NULL, NULL);
+
+
+
+    if (val == 0)
+
+        migrate_fd_connect(s);
+
+    else {
+
+        DPRINTF(""error connecting %d\n"", val);
+
+        migrate_fd_error(s);
+
+    }
+
+}
+",1,23032
+76d8c77430e9e0110623705bfb54d922cc2ac3ea,"static int decode_interrupt_cb(void *ctx)
+
+{
+
+    return received_nb_signals > transcode_init_done;
+
+}
+",1,25377
+c3fb20bab4f00621733809fb35ee39a5ae11e598,"static int reap_filters(void)
+
+{
+
+    AVFilterBufferRef *picref;
+
+    AVFrame *filtered_frame = NULL;
+
+    int i;
+
+    int64_t frame_pts;
+
+
+
+    /* Reap all buffers present in the buffer sinks */
+
+    for (i = 0; i < nb_output_streams; i++) {
+
+        OutputStream *ost = output_streams[i];
+
+        OutputFile    *of = output_files[ost->file_index];
+
+        int ret = 0;
+
+
+
+        if (!ost->filter)
+
+            continue;
+
+
+
+        if (!ost->filtered_frame && !(ost->filtered_frame = avcodec_alloc_frame())) {
+
+            return AVERROR(ENOMEM);
+
+        } else
+
+            avcodec_get_frame_defaults(ost->filtered_frame);
+
+        filtered_frame = ost->filtered_frame;
+
+
+
+        while (1) {
+
+            ret = av_buffersink_get_buffer_ref(ost->filter->filter, &picref,
+
+                                               AV_BUFFERSINK_FLAG_NO_REQUEST);
+
+            if (ret < 0) {
+
+                if (ret != AVERROR(EAGAIN) && ret != AVERROR_EOF) {
+
+                    char buf[256];
+
+                    av_strerror(ret, buf, sizeof(buf));
+
+                    av_log(NULL, AV_LOG_WARNING,
+
+                           ""Error in av_buffersink_get_buffer_ref(): %s\n"", buf);
+
+
+
+
+            frame_pts = AV_NOPTS_VALUE;
+
+            if (picref->pts != AV_NOPTS_VALUE) {
+
+                filtered_frame->pts = frame_pts = av_rescale_q(picref->pts,
+
+                                                ost->filter->filter->inputs[0]->time_base,
+
+                                                ost->st->codec->time_base) -
+
+                                    av_rescale_q(of->start_time,
+
+                                                AV_TIME_BASE_Q,
+
+                                                ost->st->codec->time_base);
+
+
+
+                if (of->start_time && filtered_frame->pts < 0) {
+
+                    avfilter_unref_buffer(picref);
+
+                    continue;
+
+
+
+            //if (ost->source_index >= 0)
+
+            //    *filtered_frame= *input_streams[ost->source_index]->decoded_frame; //for me_threshold
+
+
+
+
+
+            switch (ost->filter->filter->inputs[0]->type) {
+
+            case AVMEDIA_TYPE_VIDEO:
+
+                avfilter_copy_buf_props(filtered_frame, picref);
+
+                filtered_frame->pts = frame_pts;
+
+                if (!ost->frame_aspect_ratio)
+
+                    ost->st->codec->sample_aspect_ratio = picref->video->sample_aspect_ratio;
+
+
+
+                do_video_out(of->ctx, ost, filtered_frame);
+
+
+            case AVMEDIA_TYPE_AUDIO:
+
+                avfilter_copy_buf_props(filtered_frame, picref);
+
+                filtered_frame->pts = frame_pts;
+
+
+
+
+
+
+
+                do_audio_out(of->ctx, ost, filtered_frame);
+
+
+            default:
+
+                // TODO support subtitle filters
+
+                av_assert0(0);
+
+
+
+
+            avfilter_unref_buffer(picref);
+
+
+
+
+
+    return 0;
+",1,26140
+3ba35a346cd2ee86fff83a0d0534e8a2265984fd,"static int config_input(AVFilterLink *inlink)
+{
+    HQDN3DContext *s = inlink->dst->priv;
+    const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(inlink->format);
+    int i;
+    s->hsub  = desc->log2_chroma_w;
+    s->vsub  = desc->log2_chroma_h;
+    s->depth = desc->comp[0].depth_minus1+1;
+    s->line = av_malloc(inlink->w * sizeof(*s->line));
+    if (!s->line)
+        return AVERROR(ENOMEM);
+    for (i = 0; i < 4; i++) {
+        s->coefs[i] = precalc_coefs(s->strength[i], s->depth);
+        if (!s->coefs[i])
+            return AVERROR(ENOMEM);
+    }
+    if (ARCH_X86)
+        ff_hqdn3d_init_x86(s);
+    return 0;
+}",1,8195
+dc8764f06155a7b3e635e02281b747a9e292127e,"static gboolean register_signal_handlers(void)
+
+{
+
+    struct sigaction sigact, sigact_chld;
+
+    int ret;
+
+
+
+    memset(&sigact, 0, sizeof(struct sigaction));
+
+    sigact.sa_handler = quit_handler;
+
+
+
+    ret = sigaction(SIGINT, &sigact, NULL);
+
+    if (ret == -1) {
+
+        g_error(""error configuring signal handler: %s"", strerror(errno));
+
+        return false;
+
+    }
+
+    ret = sigaction(SIGTERM, &sigact, NULL);
+
+    if (ret == -1) {
+
+        g_error(""error configuring signal handler: %s"", strerror(errno));
+
+        return false;
+
+    }
+
+
+
+    memset(&sigact_chld, 0, sizeof(struct sigaction));
+
+    sigact_chld.sa_handler = child_handler;
+
+    sigact_chld.sa_flags = SA_NOCLDSTOP;
+
+    ret = sigaction(SIGCHLD, &sigact_chld, NULL);
+
+    if (ret == -1) {
+
+        g_error(""error configuring signal handler: %s"", strerror(errno));
+
+    }
+
+
+
+    return true;
+
+}
+",1,4015
+d8633620a112296fcf6a6ae9a1cbba614c0ca502,"static TCGv gen_lea_indexed(CPUM68KState *env, DisasContext *s, TCGv base)
+{
+    uint32_t offset;
+    uint16_t ext;
+    TCGv add;
+    TCGv tmp;
+    uint32_t bd, od;
+    offset = s->pc;
+    ext = cpu_lduw_code(env, s->pc);
+    s->pc += 2;
+    if ((ext & 0x800) == 0 && !m68k_feature(s->env, M68K_FEATURE_WORD_INDEX))
+        return NULL_QREG;
+    if (ext & 0x100) {
+        /* full extension word format */
+        if (!m68k_feature(s->env, M68K_FEATURE_EXT_FULL))
+            return NULL_QREG;
+        if ((ext & 0x30) > 0x10) {
+            /* base displacement */
+            if ((ext & 0x30) == 0x20) {
+                bd = (int16_t)cpu_lduw_code(env, s->pc);
+                s->pc += 2;
+            } else {
+                bd = read_im32(env, s);
+        } else {
+            bd = 0;
+        tmp = tcg_temp_new();
+        if ((ext & 0x44) == 0) {
+            /* pre-index */
+            add = gen_addr_index(ext, tmp);
+        } else {
+            add = NULL_QREG;
+        if ((ext & 0x80) == 0) {
+            /* base not suppressed */
+            if (IS_NULL_QREG(base)) {
+                base = tcg_const_i32(offset + bd);
+                bd = 0;
+            if (!IS_NULL_QREG(add)) {
+                tcg_gen_add_i32(tmp, add, base);
+                add = tmp;
+            } else {
+                add = base;
+        if (!IS_NULL_QREG(add)) {
+            if (bd != 0) {
+                tcg_gen_addi_i32(tmp, add, bd);
+                add = tmp;
+        } else {
+            add = tcg_const_i32(bd);
+        if ((ext & 3) != 0) {
+            /* memory indirect */
+            base = gen_load(s, OS_LONG, add, 0);
+            if ((ext & 0x44) == 4) {
+                add = gen_addr_index(ext, tmp);
+                tcg_gen_add_i32(tmp, add, base);
+                add = tmp;
+            } else {
+                add = base;
+            if ((ext & 3) > 1) {
+                /* outer displacement */
+                if ((ext & 3) == 2) {
+                    od = (int16_t)cpu_lduw_code(env, s->pc);
+                    s->pc += 2;
+                } else {
+                    od = read_im32(env, s);
+            } else {
+                od = 0;
+            if (od != 0) {
+                tcg_gen_addi_i32(tmp, add, od);
+                add = tmp;
+    } else {
+        /* brief extension word format */
+        tmp = tcg_temp_new();
+        add = gen_addr_index(ext, tmp);
+        if (!IS_NULL_QREG(base)) {
+            tcg_gen_add_i32(tmp, add, base);
+            if ((int8_t)ext)
+                tcg_gen_addi_i32(tmp, tmp, (int8_t)ext);
+        } else {
+            tcg_gen_addi_i32(tmp, add, offset + (int8_t)ext);
+        add = tmp;
+    return add;",1,20451
+b9f92093a10217b14d923220aaa186f41a0cf555,"static void decode_plane(FFV1Context *s, uint8_t *src,
+
+                         int w, int h, int stride, int plane_index,
+
+                         int pixel_stride)
+
+{
+
+    int x, y;
+
+    int16_t *sample[2];
+
+    sample[0] = s->sample_buffer + 3;
+
+    sample[1] = s->sample_buffer + w + 6 + 3;
+
+
+
+    s->run_index = 0;
+
+
+
+    memset(s->sample_buffer, 0, 2 * (w + 6) * sizeof(*s->sample_buffer));
+
+
+
+    for (y = 0; y < h; y++) {
+
+        int16_t *temp = sample[0]; // FIXME: try a normal buffer
+
+
+
+        sample[0] = sample[1];
+
+        sample[1] = temp;
+
+
+
+        sample[1][-1] = sample[0][0];
+
+        sample[0][w]  = sample[0][w - 1];
+
+
+
+// { START_TIMER
+
+        if (s->avctx->bits_per_raw_sample <= 8) {
+
+            decode_line(s, w, sample, plane_index, 8);
+
+            for (x = 0; x < w; x++)
+
+                src[x*pixel_stride + stride * y] = sample[1][x];
+
+        } else {
+
+            decode_line(s, w, sample, plane_index, s->avctx->bits_per_raw_sample);
+
+            if (s->packed_at_lsb) {
+
+                for (x = 0; x < w; x++) {
+
+                    ((uint16_t*)(src + stride*y))[x*pixel_stride] = sample[1][x];
+
+                }
+
+            } else {
+
+                for (x = 0; x < w; x++) {
+
+                    ((uint16_t*)(src + stride*y))[x*pixel_stride] = sample[1][x] << (16 - s->avctx->bits_per_raw_sample) | ((uint16_t **)sample)[1][x] >> (2 * s->avctx->bits_per_raw_sample - 16);
+
+                }
+
+            }
+
+        }
+
+// STOP_TIMER(""decode-line"") }
+
+    }
+
+}
+",1,8200
+c919297379e9980c2bcc4d2053addbc1fd6d762b,"static int img_map(int argc, char **argv)
+
+{
+
+    int c;
+
+    OutputFormat output_format = OFORMAT_HUMAN;
+
+    BlockBackend *blk;
+
+    BlockDriverState *bs;
+
+    const char *filename, *fmt, *output;
+
+    int64_t length;
+
+    MapEntry curr = { .length = 0 }, next;
+
+    int ret = 0;
+
+    bool image_opts = false;
+
+
+
+    fmt = NULL;
+
+    output = NULL;
+
+    for (;;) {
+
+        int option_index = 0;
+
+        static const struct option long_options[] = {
+
+            {""help"", no_argument, 0, 'h'},
+
+            {""format"", required_argument, 0, 'f'},
+
+            {""output"", required_argument, 0, OPTION_OUTPUT},
+
+            {""object"", required_argument, 0, OPTION_OBJECT},
+
+            {""image-opts"", no_argument, 0, OPTION_IMAGE_OPTS},
+
+            {0, 0, 0, 0}
+
+        };
+
+        c = getopt_long(argc, argv, ""f:h"",
+
+                        long_options, &option_index);
+
+        if (c == -1) {
+
+            break;
+
+        }
+
+        switch (c) {
+
+        case '?':
+
+        case 'h':
+
+            help();
+
+            break;
+
+        case 'f':
+
+            fmt = optarg;
+
+            break;
+
+        case OPTION_OUTPUT:
+
+            output = optarg;
+
+            break;
+
+        case OPTION_OBJECT: {
+
+            QemuOpts *opts;
+
+            opts = qemu_opts_parse_noisily(&qemu_object_opts,
+
+                                           optarg, true);
+
+            if (!opts) {
+
+                return 1;
+
+            }
+
+        }   break;
+
+        case OPTION_IMAGE_OPTS:
+
+            image_opts = true;
+
+            break;
+
+        }
+
+    }
+
+    if (optind != argc - 1) {
+
+        error_exit(""Expecting one image file name"");
+
+    }
+
+    filename = argv[optind];
+
+
+
+    if (output && !strcmp(output, ""json"")) {
+
+        output_format = OFORMAT_JSON;
+
+    } else if (output && !strcmp(output, ""human"")) {
+
+        output_format = OFORMAT_HUMAN;
+
+    } else if (output) {
+
+        error_report(""--output must be used with human or json as argument."");
+
+        return 1;
+
+    }
+
+
+
+    if (qemu_opts_foreach(&qemu_object_opts,
+
+                          user_creatable_add_opts_foreach,
+
+                          NULL, NULL)) {
+
+        return 1;
+
+    }
+
+
+
+    blk = img_open(image_opts, filename, fmt, 0, false, false);
+
+    if (!blk) {
+
+        return 1;
+
+    }
+
+    bs = blk_bs(blk);
+
+
+
+    if (output_format == OFORMAT_HUMAN) {
+
+        printf(""%-16s%-16s%-16s%s\n"", ""Offset"", ""Length"", ""Mapped to"", ""File"");
+
+    }
+
+
+
+    length = blk_getlength(blk);
+
+    while (curr.start + curr.length < length) {
+
+        int64_t nsectors_left;
+
+        int64_t sector_num;
+
+        int n;
+
+
+
+        sector_num = (curr.start + curr.length) >> BDRV_SECTOR_BITS;
+
+
+
+        /* Probe up to 1 GiB at a time.  */
+
+        nsectors_left = DIV_ROUND_UP(length, BDRV_SECTOR_SIZE) - sector_num;
+
+        n = MIN(1 << (30 - BDRV_SECTOR_BITS), nsectors_left);
+
+        ret = get_block_status(bs, sector_num, n, &next);
+
+
+
+        if (ret < 0) {
+
+            error_report(""Could not read file metadata: %s"", strerror(-ret));
+
+            goto out;
+
+        }
+
+
+
+        if (entry_mergeable(&curr, &next)) {
+
+            curr.length += next.length;
+
+            continue;
+
+        }
+
+
+
+        if (curr.length > 0) {
+
+            dump_map_entry(output_format, &curr, &next);
+
+        }
+
+        curr = next;
+
+    }
+
+
+
+    dump_map_entry(output_format, &curr, NULL);
+
+
+
+out:
+
+    blk_unref(blk);
+
+    return ret < 0;
+
+}
+",1,18181
+cb77dad72414940837bdb01dad5e747175d6a01f,"static int ea_read_header(AVFormatContext *s,
+                          AVFormatParameters *ap)
+{
+    EaDemuxContext *ea = s->priv_data;
+    AVStream *st;
+    if (!process_ea_header(s))
+        return AVERROR(EIO);
+    if (ea->video_codec) {
+        /* initialize the video decoder stream */
+        st = av_new_stream(s, 0);
+        if (!st)
+            return AVERROR(ENOMEM);
+        ea->video_stream_index = st->index;
+        st->codec->codec_type = AVMEDIA_TYPE_VIDEO;
+        st->codec->codec_id = ea->video_codec;
+        st->codec->codec_tag = 0;  /* no fourcc */
+        st->codec->time_base = ea->time_base;
+        st->codec->width = ea->width;
+        st->codec->height = ea->height;
+    if (ea->num_channels <= 0) {
+        av_log(s, AV_LOG_WARNING, ""Unsupported number of channels: %d\n"", ea->num_channels);
+    if (ea->audio_codec) {
+        /* initialize the audio decoder stream */
+        st = av_new_stream(s, 0);
+        if (!st)
+            return AVERROR(ENOMEM);
+        av_set_pts_info(st, 33, 1, ea->sample_rate);
+        st->codec->codec_type = AVMEDIA_TYPE_AUDIO;
+        st->codec->codec_id = ea->audio_codec;
+        st->codec->codec_tag = 0;  /* no tag */
+        st->codec->channels = ea->num_channels;
+        st->codec->sample_rate = ea->sample_rate;
+        st->codec->bits_per_coded_sample = ea->bytes * 8;
+        st->codec->bit_rate = st->codec->channels * st->codec->sample_rate *
+            st->codec->bits_per_coded_sample / 4;
+        st->codec->block_align = st->codec->channels*st->codec->bits_per_coded_sample;
+        ea->audio_stream_index = st->index;
+        ea->audio_frame_counter = 0;
+    return 1;",1,7050
+478f1c3d5e5463a284ea7efecfc62d47ba3be11a,"static int decode_idat_chunk(AVCodecContext *avctx, PNGDecContext *s,
+
+                             uint32_t length, AVFrame *p)
+
+{
+
+    int ret;
+
+    size_t byte_depth = s->bit_depth > 8 ? 2 : 1;
+
+
+
+    if (!(s->state & PNG_IHDR)) {
+
+        av_log(avctx, AV_LOG_ERROR, ""IDAT without IHDR\n"");
+
+        return AVERROR_INVALIDDATA;
+
+    }
+
+    if (!(s->state & PNG_IDAT)) {
+
+        /* init image info */
+
+        avctx->width  = s->width;
+
+        avctx->height = s->height;
+
+
+
+        s->channels       = ff_png_get_nb_channels(s->color_type);
+
+        s->bits_per_pixel = s->bit_depth * s->channels;
+
+        s->bpp            = (s->bits_per_pixel + 7) >> 3;
+
+        s->row_size       = (s->cur_w * s->bits_per_pixel + 7) >> 3;
+
+
+
+        if ((s->bit_depth == 2 || s->bit_depth == 4 || s->bit_depth == 8) &&
+
+                s->color_type == PNG_COLOR_TYPE_RGB) {
+
+            avctx->pix_fmt = AV_PIX_FMT_RGB24;
+
+        } else if ((s->bit_depth == 2 || s->bit_depth == 4 || s->bit_depth == 8) &&
+
+                s->color_type == PNG_COLOR_TYPE_RGB_ALPHA) {
+
+            avctx->pix_fmt = AV_PIX_FMT_RGBA;
+
+        } else if ((s->bit_depth == 2 || s->bit_depth == 4 || s->bit_depth == 8) &&
+
+                s->color_type == PNG_COLOR_TYPE_GRAY) {
+
+            avctx->pix_fmt = AV_PIX_FMT_GRAY8;
+
+        } else if (s->bit_depth == 16 &&
+
+                s->color_type == PNG_COLOR_TYPE_GRAY) {
+
+            avctx->pix_fmt = AV_PIX_FMT_GRAY16BE;
+
+        } else if (s->bit_depth == 16 &&
+
+                s->color_type == PNG_COLOR_TYPE_RGB) {
+
+            avctx->pix_fmt = AV_PIX_FMT_RGB48BE;
+
+        } else if (s->bit_depth == 16 &&
+
+                s->color_type == PNG_COLOR_TYPE_RGB_ALPHA) {
+
+            avctx->pix_fmt = AV_PIX_FMT_RGBA64BE;
+
+        } else if ((s->bits_per_pixel == 1 || s->bits_per_pixel == 2 || s->bits_per_pixel == 4 || s->bits_per_pixel == 8) &&
+
+                s->color_type == PNG_COLOR_TYPE_PALETTE) {
+
+            avctx->pix_fmt = AV_PIX_FMT_PAL8;
+
+        } else if (s->bit_depth == 1 && s->bits_per_pixel == 1 && avctx->codec_id != AV_CODEC_ID_APNG) {
+
+            avctx->pix_fmt = AV_PIX_FMT_MONOBLACK;
+
+        } else if (s->bit_depth == 8 &&
+
+                s->color_type == PNG_COLOR_TYPE_GRAY_ALPHA) {
+
+            avctx->pix_fmt = AV_PIX_FMT_YA8;
+
+        } else if (s->bit_depth == 16 &&
+
+                s->color_type == PNG_COLOR_TYPE_GRAY_ALPHA) {
+
+            avctx->pix_fmt = AV_PIX_FMT_YA16BE;
+
+        } else {
+
+            av_log(avctx, AV_LOG_ERROR, ""unsupported bit depth %d ""
+
+                    ""and color type %d\n"",
+
+                    s->bit_depth, s->color_type);
+
+            return AVERROR_INVALIDDATA;
+
+        }
+
+
+
+        if (s->has_trns && s->color_type != PNG_COLOR_TYPE_PALETTE) {
+
+            switch (avctx->pix_fmt) {
+
+            case AV_PIX_FMT_RGB24:
+
+                avctx->pix_fmt = AV_PIX_FMT_RGBA;
+
+                break;
+
+
+
+            case AV_PIX_FMT_RGB48BE:
+
+                avctx->pix_fmt = AV_PIX_FMT_RGBA64BE;
+
+                break;
+
+
+
+            case AV_PIX_FMT_GRAY8:
+
+                avctx->pix_fmt = AV_PIX_FMT_YA8;
+
+                break;
+
+
+
+            case AV_PIX_FMT_GRAY16BE:
+
+                avctx->pix_fmt = AV_PIX_FMT_YA16BE;
+
+                break;
+
+
+
+            default:
+
+                avpriv_request_sample(avctx, ""bit depth %d ""
+
+                        ""and color type %d with TRNS"",
+
+                        s->bit_depth, s->color_type);
+
+                return AVERROR_INVALIDDATA;
+
+            }
+
+
+
+            s->bpp += byte_depth;
+
+        }
+
+
+
+        if ((ret = ff_thread_get_buffer(avctx, &s->picture, AV_GET_BUFFER_FLAG_REF)) < 0)
+
+            return ret;
+
+        if (avctx->codec_id == AV_CODEC_ID_APNG && s->last_dispose_op != APNG_DISPOSE_OP_PREVIOUS) {
+
+            ff_thread_release_buffer(avctx, &s->previous_picture);
+
+            if ((ret = ff_thread_get_buffer(avctx, &s->previous_picture, AV_GET_BUFFER_FLAG_REF)) < 0)
+
+                return ret;
+
+        }
+
+        ff_thread_finish_setup(avctx);
+
+
+
+        p->pict_type        = AV_PICTURE_TYPE_I;
+
+        p->key_frame        = 1;
+
+        p->interlaced_frame = !!s->interlace_type;
+
+
+
+        /* compute the compressed row size */
+
+        if (!s->interlace_type) {
+
+            s->crow_size = s->row_size + 1;
+
+        } else {
+
+            s->pass          = 0;
+
+            s->pass_row_size = ff_png_pass_row_size(s->pass,
+
+                    s->bits_per_pixel,
+
+                    s->cur_w);
+
+            s->crow_size = s->pass_row_size + 1;
+
+        }
+
+        ff_dlog(avctx, ""row_size=%d crow_size =%d\n"",
+
+                s->row_size, s->crow_size);
+
+        s->image_buf      = p->data[0];
+
+        s->image_linesize = p->linesize[0];
+
+        /* copy the palette if needed */
+
+        if (avctx->pix_fmt == AV_PIX_FMT_PAL8)
+
+            memcpy(p->data[1], s->palette, 256 * sizeof(uint32_t));
+
+        /* empty row is used if differencing to the first row */
+
+        av_fast_padded_mallocz(&s->last_row, &s->last_row_size, s->row_size);
+
+        if (!s->last_row)
+
+            return AVERROR_INVALIDDATA;
+
+        if (s->interlace_type ||
+
+                s->color_type == PNG_COLOR_TYPE_RGB_ALPHA) {
+
+            av_fast_padded_malloc(&s->tmp_row, &s->tmp_row_size, s->row_size);
+
+            if (!s->tmp_row)
+
+                return AVERROR_INVALIDDATA;
+
+        }
+
+        /* compressed row */
+
+        av_fast_padded_malloc(&s->buffer, &s->buffer_size, s->row_size + 16);
+
+        if (!s->buffer)
+
+            return AVERROR(ENOMEM);
+
+
+
+        /* we want crow_buf+1 to be 16-byte aligned */
+
+        s->crow_buf          = s->buffer + 15;
+
+        s->zstream.avail_out = s->crow_size;
+
+        s->zstream.next_out  = s->crow_buf;
+
+    }
+
+
+
+    s->state |= PNG_IDAT;
+
+
+
+    /* set image to non-transparent bpp while decompressing */
+
+    if (s->has_trns && s->color_type != PNG_COLOR_TYPE_PALETTE)
+
+        s->bpp -= byte_depth;
+
+
+
+    ret = png_decode_idat(s, length);
+
+
+
+    if (s->has_trns && s->color_type != PNG_COLOR_TYPE_PALETTE)
+
+        s->bpp += byte_depth;
+
+
+
+    if (ret < 0)
+
+        return ret;
+
+
+
+    bytestream2_skip(&s->gb, 4); /* crc */
+
+
+
+    return 0;
+
+}
+",1,11243
+962b289ef35087fcd8764e4e29808d8ac90157f7,"print_syscall_ret(int num, abi_long ret)
+
+{
+
+    int i;
+
+
+
+    for(i=0;i<nsyscalls;i++)
+
+        if( scnames[i].nr == num ) {
+
+            if( scnames[i].result != NULL ) {
+
+                scnames[i].result(&scnames[i],ret);
+
+            } else {
+
+                if( ret < 0 ) {
+
+                    gemu_log("" = -1 errno="" TARGET_ABI_FMT_ld "" (%s)\n"", -ret, target_strerror(-ret));
+
+                } else {
+
+                    gemu_log("" = "" TARGET_ABI_FMT_ld ""\n"", ret);
+
+                }
+
+            }
+
+            break;
+
+        }
+
+}
+",1,10957
+ac4b32df71bd932838043a4838b86d11e169707f,"av_cold void ff_vp8dsp_init_ppc(VP8DSPContext *c)
+
+{
+
+#if HAVE_ALTIVEC
+
+    if (!(av_get_cpu_flags() & AV_CPU_FLAG_ALTIVEC))
+
+        return;
+
+
+
+    c->put_vp8_epel_pixels_tab[0][0][0] = put_vp8_pixels16_altivec;
+
+    c->put_vp8_epel_pixels_tab[0][0][2] = put_vp8_epel16_h6_altivec;
+
+    c->put_vp8_epel_pixels_tab[0][2][0] = put_vp8_epel16_v6_altivec;
+
+    c->put_vp8_epel_pixels_tab[0][2][2] = put_vp8_epel16_h6v6_altivec;
+
+
+
+    c->put_vp8_epel_pixels_tab[1][0][2] = put_vp8_epel8_h6_altivec;
+
+    c->put_vp8_epel_pixels_tab[1][2][0] = put_vp8_epel8_v6_altivec;
+
+    c->put_vp8_epel_pixels_tab[1][0][1] = put_vp8_epel8_h4_altivec;
+
+    c->put_vp8_epel_pixels_tab[1][1][0] = put_vp8_epel8_v4_altivec;
+
+
+
+    c->put_vp8_epel_pixels_tab[1][2][2] = put_vp8_epel8_h6v6_altivec;
+
+    c->put_vp8_epel_pixels_tab[1][1][1] = put_vp8_epel8_h4v4_altivec;
+
+    c->put_vp8_epel_pixels_tab[1][1][2] = put_vp8_epel8_h6v4_altivec;
+
+    c->put_vp8_epel_pixels_tab[1][2][1] = put_vp8_epel8_h4v6_altivec;
+
+
+
+    c->put_vp8_epel_pixels_tab[2][0][2] = put_vp8_epel4_h6_altivec;
+
+    c->put_vp8_epel_pixels_tab[2][2][0] = put_vp8_epel4_v6_altivec;
+
+    c->put_vp8_epel_pixels_tab[2][0][1] = put_vp8_epel4_h4_altivec;
+
+    c->put_vp8_epel_pixels_tab[2][1][0] = put_vp8_epel4_v4_altivec;
+
+
+
+    c->put_vp8_epel_pixels_tab[2][2][2] = put_vp8_epel4_h6v6_altivec;
+
+    c->put_vp8_epel_pixels_tab[2][1][1] = put_vp8_epel4_h4v4_altivec;
+
+    c->put_vp8_epel_pixels_tab[2][1][2] = put_vp8_epel4_h6v4_altivec;
+
+    c->put_vp8_epel_pixels_tab[2][2][1] = put_vp8_epel4_h4v6_altivec;
+
+#endif /* HAVE_ALTIVEC */
+
+}
+",1,1320
+725353525e73bbe5b6b4d01528252675f2417a02,"static av_cold int ulti_decode_init(AVCodecContext *avctx)
+
+{
+
+    UltimotionDecodeContext *s = avctx->priv_data;
+
+
+
+    s->avctx = avctx;
+
+    s->width = avctx->width;
+
+    s->height = avctx->height;
+
+    s->blocks = (s->width / 8) * (s->height / 8);
+
+
+
+    avctx->pix_fmt = AV_PIX_FMT_YUV410P;
+
+    s->ulti_codebook = ulti_codebook;
+
+
+
+    s->frame = av_frame_alloc();
+
+    if (!s->frame)
+
+        return AVERROR(ENOMEM);
+
+
+
+    return 0;
+
+}",1,18716
+0dd4bc7dd45de7afa88662d24bd50a3aafdbab64,"CPUState *ppc440ep_init(ram_addr_t *ram_size, PCIBus **pcip,
+
+                        const unsigned int pci_irq_nrs[4], int do_init,
+
+                        const char *cpu_model)
+
+{
+
+    target_phys_addr_t ram_bases[PPC440EP_SDRAM_NR_BANKS];
+
+    target_phys_addr_t ram_sizes[PPC440EP_SDRAM_NR_BANKS];
+
+    CPUState *env;
+
+    qemu_irq *pic;
+
+    qemu_irq *irqs;
+
+    qemu_irq *pci_irqs;
+
+
+
+    if (cpu_model == NULL)
+
+        cpu_model = ""405""; // XXX: should be 440EP
+
+    env = cpu_init(cpu_model);
+
+    if (!env) {
+
+        fprintf(stderr, ""Unable to initialize CPU!\n"");
+
+        exit(1);
+
+    }
+
+
+
+    ppc_dcr_init(env, NULL, NULL);
+
+
+
+    /* interrupt controller */
+
+    irqs = qemu_mallocz(sizeof(qemu_irq) * PPCUIC_OUTPUT_NB);
+
+    irqs[PPCUIC_OUTPUT_INT] = ((qemu_irq *)env->irq_inputs)[PPC40x_INPUT_INT];
+
+    irqs[PPCUIC_OUTPUT_CINT] = ((qemu_irq *)env->irq_inputs)[PPC40x_INPUT_CINT];
+
+    pic = ppcuic_init(env, irqs, 0x0C0, 0, 1);
+
+
+
+    /* SDRAM controller */
+
+    memset(ram_bases, 0, sizeof(ram_bases));
+
+    memset(ram_sizes, 0, sizeof(ram_sizes));
+
+    *ram_size = ppc4xx_sdram_adjust(*ram_size, PPC440EP_SDRAM_NR_BANKS,
+
+                                    ram_bases, ram_sizes,
+
+                                    ppc440ep_sdram_bank_sizes);
+
+    /* XXX 440EP's ECC interrupts are on UIC1, but we've only created UIC0. */
+
+    ppc4xx_sdram_init(env, pic[14], PPC440EP_SDRAM_NR_BANKS, ram_bases,
+
+                      ram_sizes, do_init);
+
+
+
+    /* PCI */
+
+    pci_irqs = qemu_malloc(sizeof(qemu_irq) * 4);
+
+    pci_irqs[0] = pic[pci_irq_nrs[0]];
+
+    pci_irqs[1] = pic[pci_irq_nrs[1]];
+
+    pci_irqs[2] = pic[pci_irq_nrs[2]];
+
+    pci_irqs[3] = pic[pci_irq_nrs[3]];
+
+    *pcip = ppc4xx_pci_init(env, pci_irqs,
+
+                            PPC440EP_PCI_CONFIG,
+
+                            PPC440EP_PCI_INTACK,
+
+                            PPC440EP_PCI_SPECIAL,
+
+                            PPC440EP_PCI_REGS);
+
+    if (!*pcip)
+
+        printf(""couldn't create PCI controller!\n"");
+
+
+
+    isa_mmio_init(PPC440EP_PCI_IO, PPC440EP_PCI_IOLEN);
+
+
+
+    if (serial_hds[0] != NULL) {
+
+        serial_mm_init(0xef600300, 0, pic[0], PPC_SERIAL_MM_BAUDBASE,
+
+                       serial_hds[0], 1, 1);
+
+    }
+
+    if (serial_hds[1] != NULL) {
+
+        serial_mm_init(0xef600400, 0, pic[1], PPC_SERIAL_MM_BAUDBASE,
+
+                       serial_hds[1], 1, 1);
+
+    }
+
+
+
+    return env;
+
+}
+",1,14618
+211ca69b13eb0a127a9ef7e70ddaccdab125d1c5,"int attribute_align_arg avresample_convert(AVAudioResampleContext *avr,
+
+                                           uint8_t **output, int out_plane_size,
+
+                                           int out_samples, uint8_t **input,
+
+                                           int in_plane_size, int in_samples)
+
+{
+
+    AudioData input_buffer;
+
+    AudioData output_buffer;
+
+    AudioData *current_buffer;
+
+    int ret, direct_output;
+
+
+
+    /* reset internal buffers */
+
+    if (avr->in_buffer) {
+
+        avr->in_buffer->nb_samples = 0;
+
+        ff_audio_data_set_channels(avr->in_buffer,
+
+                                   avr->in_buffer->allocated_channels);
+
+    }
+
+    if (avr->resample_out_buffer) {
+
+        avr->resample_out_buffer->nb_samples = 0;
+
+        ff_audio_data_set_channels(avr->resample_out_buffer,
+
+                                   avr->resample_out_buffer->allocated_channels);
+
+    }
+
+    if (avr->out_buffer) {
+
+        avr->out_buffer->nb_samples = 0;
+
+        ff_audio_data_set_channels(avr->out_buffer,
+
+                                   avr->out_buffer->allocated_channels);
+
+    }
+
+
+
+    av_dlog(avr, ""[start conversion]\n"");
+
+
+
+    /* initialize output_buffer with output data */
+
+    direct_output = output && av_audio_fifo_size(avr->out_fifo) == 0;
+
+    if (output) {
+
+        ret = ff_audio_data_init(&output_buffer, output, out_plane_size,
+
+                                 avr->out_channels, out_samples,
+
+                                 avr->out_sample_fmt, 0, ""output"");
+
+        if (ret < 0)
+
+            return ret;
+
+        output_buffer.nb_samples = 0;
+
+    }
+
+
+
+    if (input) {
+
+        /* initialize input_buffer with input data */
+
+        ret = ff_audio_data_init(&input_buffer, input, in_plane_size,
+
+                                 avr->in_channels, in_samples,
+
+                                 avr->in_sample_fmt, 1, ""input"");
+
+        if (ret < 0)
+
+            return ret;
+
+        current_buffer = &input_buffer;
+
+
+
+        if (avr->upmix_needed && !avr->in_convert_needed && !avr->resample_needed &&
+
+            !avr->out_convert_needed && direct_output && out_samples >= in_samples) {
+
+            /* in some rare cases we can copy input to output and upmix
+
+               directly in the output buffer */
+
+            av_dlog(avr, ""[copy] %s to output\n"", current_buffer->name);
+
+            ret = ff_audio_data_copy(&output_buffer, current_buffer,
+
+                                     avr->remap_point == REMAP_OUT_COPY ?
+
+                                     &avr->ch_map_info : NULL);
+
+            if (ret < 0)
+
+                return ret;
+
+            current_buffer = &output_buffer;
+
+        } else if (avr->remap_point == REMAP_OUT_COPY &&
+
+                   (!direct_output || out_samples < in_samples)) {
+
+            /* if remapping channels during output copy, we may need to
+
+             * use an intermediate buffer in order to remap before adding
+
+             * samples to the output fifo */
+
+            av_dlog(avr, ""[copy] %s to out_buffer\n"", current_buffer->name);
+
+            ret = ff_audio_data_copy(avr->out_buffer, current_buffer,
+
+                                     &avr->ch_map_info);
+
+            if (ret < 0)
+
+                return ret;
+
+            current_buffer = avr->out_buffer;
+
+        } else if (avr->in_copy_needed || avr->in_convert_needed) {
+
+            /* if needed, copy or convert input to in_buffer, and downmix if
+
+               applicable */
+
+            if (avr->in_convert_needed) {
+
+                ret = ff_audio_data_realloc(avr->in_buffer,
+
+                                            current_buffer->nb_samples);
+
+                if (ret < 0)
+
+                    return ret;
+
+                av_dlog(avr, ""[convert] %s to in_buffer\n"", current_buffer->name);
+
+                ret = ff_audio_convert(avr->ac_in, avr->in_buffer,
+
+                                       current_buffer);
+
+                if (ret < 0)
+
+                    return ret;
+
+            } else {
+
+                av_dlog(avr, ""[copy] %s to in_buffer\n"", current_buffer->name);
+
+                ret = ff_audio_data_copy(avr->in_buffer, current_buffer,
+
+                                         avr->remap_point == REMAP_IN_COPY ?
+
+                                         &avr->ch_map_info : NULL);
+
+                if (ret < 0)
+
+                    return ret;
+
+            }
+
+            ff_audio_data_set_channels(avr->in_buffer, avr->in_channels);
+
+            if (avr->downmix_needed) {
+
+                av_dlog(avr, ""[downmix] in_buffer\n"");
+
+                ret = ff_audio_mix(avr->am, avr->in_buffer);
+
+                if (ret < 0)
+
+                    return ret;
+
+            }
+
+            current_buffer = avr->in_buffer;
+
+        }
+
+    } else {
+
+        /* flush resampling buffer and/or output FIFO if input is NULL */
+
+        if (!avr->resample_needed)
+
+            return handle_buffered_output(avr, output ? &output_buffer : NULL,
+
+                                          NULL);
+
+        current_buffer = NULL;
+
+    }
+
+
+
+    if (avr->resample_needed) {
+
+        AudioData *resample_out;
+
+
+
+        if (!avr->out_convert_needed && direct_output && out_samples > 0)
+
+            resample_out = &output_buffer;
+
+        else
+
+            resample_out = avr->resample_out_buffer;
+
+        av_dlog(avr, ""[resample] %s to %s\n"", current_buffer->name,
+
+                resample_out->name);
+
+        ret = ff_audio_resample(avr->resample, resample_out,
+
+                                current_buffer);
+
+        if (ret < 0)
+
+            return ret;
+
+
+
+        /* if resampling did not produce any samples, just return 0 */
+
+        if (resample_out->nb_samples == 0) {
+
+            av_dlog(avr, ""[end conversion]\n"");
+
+            return 0;
+
+        }
+
+
+
+        current_buffer = resample_out;
+
+    }
+
+
+
+    if (avr->upmix_needed) {
+
+        av_dlog(avr, ""[upmix] %s\n"", current_buffer->name);
+
+        ret = ff_audio_mix(avr->am, current_buffer);
+
+        if (ret < 0)
+
+            return ret;
+
+    }
+
+
+
+    /* if we resampled or upmixed directly to output, return here */
+
+    if (current_buffer == &output_buffer) {
+
+        av_dlog(avr, ""[end conversion]\n"");
+
+        return current_buffer->nb_samples;
+
+    }
+
+
+
+    if (avr->out_convert_needed) {
+
+        if (direct_output && out_samples >= current_buffer->nb_samples) {
+
+            /* convert directly to output */
+
+            av_dlog(avr, ""[convert] %s to output\n"", current_buffer->name);
+
+            ret = ff_audio_convert(avr->ac_out, &output_buffer, current_buffer);
+
+            if (ret < 0)
+
+                return ret;
+
+
+
+            av_dlog(avr, ""[end conversion]\n"");
+
+            return output_buffer.nb_samples;
+
+        } else {
+
+            ret = ff_audio_data_realloc(avr->out_buffer,
+
+                                        current_buffer->nb_samples);
+
+            if (ret < 0)
+
+                return ret;
+
+            av_dlog(avr, ""[convert] %s to out_buffer\n"", current_buffer->name);
+
+            ret = ff_audio_convert(avr->ac_out, avr->out_buffer,
+
+                                   current_buffer);
+
+            if (ret < 0)
+
+                return ret;
+
+            current_buffer = avr->out_buffer;
+
+        }
+
+    }
+
+
+
+    return handle_buffered_output(avr, output ? &output_buffer : NULL,
+
+                                  current_buffer);
+
+}
+",1,24111
+40ff6d7e8dceca227e7f8a3e8e0d58b2c66d19b4,"MigrationState *tcp_start_outgoing_migration(Monitor *mon,
+
+                                             const char *host_port,
+
+                                             int64_t bandwidth_limit,
+
+                                             int detach,
+
+					     int blk,
+
+					     int inc)
+
+{
+
+    struct sockaddr_in addr;
+
+    FdMigrationState *s;
+
+    int ret;
+
+
+
+    if (parse_host_port(&addr, host_port) < 0)
+
+        return NULL;
+
+
+
+    s = qemu_mallocz(sizeof(*s));
+
+
+
+    s->get_error = socket_errno;
+
+    s->write = socket_write;
+
+    s->close = tcp_close;
+
+    s->mig_state.cancel = migrate_fd_cancel;
+
+    s->mig_state.get_status = migrate_fd_get_status;
+
+    s->mig_state.release = migrate_fd_release;
+
+
+
+    s->mig_state.blk = blk;
+
+    s->mig_state.shared = inc;
+
+
+
+    s->state = MIG_STATE_ACTIVE;
+
+    s->mon = NULL;
+
+    s->bandwidth_limit = bandwidth_limit;
+
+    s->fd = socket(PF_INET, SOCK_STREAM, 0);
+
+    if (s->fd == -1) {
+
+        qemu_free(s);
+
+        return NULL;
+
+    }
+
+
+
+    socket_set_nonblock(s->fd);
+
+
+
+    if (!detach) {
+
+        migrate_fd_monitor_suspend(s, mon);
+
+    }
+
+
+
+    do {
+
+        ret = connect(s->fd, (struct sockaddr *)&addr, sizeof(addr));
+
+        if (ret == -1)
+
+            ret = -(s->get_error(s));
+
+
+
+        if (ret == -EINPROGRESS || ret == -EWOULDBLOCK)
+
+            qemu_set_fd_handler2(s->fd, NULL, NULL, tcp_wait_for_connect, s);
+
+    } while (ret == -EINTR);
+
+
+
+    if (ret < 0 && ret != -EINPROGRESS && ret != -EWOULDBLOCK) {
+
+        dprintf(""connect failed\n"");
+
+        close(s->fd);
+
+        qemu_free(s);
+
+        return NULL;
+
+    } else if (ret >= 0)
+
+        migrate_fd_connect(s);
+
+
+
+    return &s->mig_state;
+
+}
+",1,13607
+9d8256ebc0ef88fb1f35d0405893962d20cc10ad,"void gd_egl_scanout(DisplayChangeListener *dcl,
+
+                    uint32_t backing_id, bool backing_y_0_top,
+
+
+                    uint32_t x, uint32_t y,
+
+                    uint32_t w, uint32_t h)
+
+{
+
+    VirtualConsole *vc = container_of(dcl, VirtualConsole, gfx.dcl);
+
+
+
+    vc->gfx.x = x;
+
+    vc->gfx.y = y;
+
+    vc->gfx.w = w;
+
+    vc->gfx.h = h;
+
+    vc->gfx.tex_id = backing_id;
+
+    vc->gfx.y0_top = backing_y_0_top;
+
+
+
+    eglMakeCurrent(qemu_egl_display, vc->gfx.esurface,
+
+                   vc->gfx.esurface, vc->gfx.ectx);
+
+
+
+    if (vc->gfx.tex_id == 0 || vc->gfx.w == 0 || vc->gfx.h == 0) {
+
+        gtk_egl_set_scanout_mode(vc, false);
+
+        return;
+
+    }
+
+
+
+    gtk_egl_set_scanout_mode(vc, true);
+
+    if (!vc->gfx.fbo_id) {
+
+        glGenFramebuffers(1, &vc->gfx.fbo_id);
+
+    }
+
+
+
+    glBindFramebuffer(GL_FRAMEBUFFER_EXT, vc->gfx.fbo_id);
+
+    glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT,
+
+                              GL_TEXTURE_2D, vc->gfx.tex_id, 0);
+
+}",1,6457
+3c85e74fbf9e5a39d8d13ef91a5f3dd91f0bc8a8,"int kvm_arch_init(KVMState *s)
+
+{
+
+    uint64_t identity_base = 0xfffbc000;
+
+    int ret;
+
+    struct utsname utsname;
+
+
+
+    ret = kvm_get_supported_msrs(s);
+
+    if (ret < 0) {
+
+        return ret;
+
+    }
+
+
+
+    uname(&utsname);
+
+    lm_capable_kernel = strcmp(utsname.machine, ""x86_64"") == 0;
+
+
+
+    /*
+
+     * On older Intel CPUs, KVM uses vm86 mode to emulate 16-bit code directly.
+
+     * In order to use vm86 mode, an EPT identity map and a TSS  are needed.
+
+     * Since these must be part of guest physical memory, we need to allocate
+
+     * them, both by setting their start addresses in the kernel and by
+
+     * creating a corresponding e820 entry. We need 4 pages before the BIOS.
+
+     *
+
+     * Older KVM versions may not support setting the identity map base. In
+
+     * that case we need to stick with the default, i.e. a 256K maximum BIOS
+
+     * size.
+
+     */
+
+#ifdef KVM_CAP_SET_IDENTITY_MAP_ADDR
+
+    if (kvm_check_extension(s, KVM_CAP_SET_IDENTITY_MAP_ADDR)) {
+
+        /* Allows up to 16M BIOSes. */
+
+        identity_base = 0xfeffc000;
+
+
+
+        ret = kvm_vm_ioctl(s, KVM_SET_IDENTITY_MAP_ADDR, &identity_base);
+
+        if (ret < 0) {
+
+            return ret;
+
+        }
+
+    }
+
+#endif
+
+    /* Set TSS base one page after EPT identity map. */
+
+    ret = kvm_vm_ioctl(s, KVM_SET_TSS_ADDR, identity_base + 0x1000);
+
+    if (ret < 0) {
+
+        return ret;
+
+    }
+
+
+
+    /* Tell fw_cfg to notify the BIOS to reserve the range. */
+
+    ret = e820_add_entry(identity_base, 0x4000, E820_RESERVED);
+
+    if (ret < 0) {
+
+        fprintf(stderr, ""e820_add_entry() table is full\n"");
+
+        return ret;
+
+    }
+
+
+
+
+    return 0;
+
+}",1,8772
+2c5c37ade115b5efa3f77ce11bc2c4e46b384959,"av_cold static int auto_matrix(SwrContext *s)
+
+{
+
+    int i, j, out_i;
+
+    double matrix[NUM_NAMED_CHANNELS][NUM_NAMED_CHANNELS]={{0}};
+
+    int64_t unaccounted, in_ch_layout, out_ch_layout;
+
+    double maxcoef=0;
+
+    char buf[128];
+
+    const int matrix_encoding = s->matrix_encoding;
+
+    float maxval;
+
+
+
+    in_ch_layout = clean_layout(s, s->in_ch_layout);
+
+    out_ch_layout = clean_layout(s, s->out_ch_layout);
+
+
+
+    if(   out_ch_layout == AV_CH_LAYOUT_STEREO_DOWNMIX
+
+       && (in_ch_layout & AV_CH_LAYOUT_STEREO_DOWNMIX) == 0
+
+    )
+
+        out_ch_layout = AV_CH_LAYOUT_STEREO;
+
+
+
+    if(    in_ch_layout == AV_CH_LAYOUT_STEREO_DOWNMIX
+
+       && (out_ch_layout & AV_CH_LAYOUT_STEREO_DOWNMIX) == 0
+
+    )
+
+        in_ch_layout = AV_CH_LAYOUT_STEREO;
+
+
+
+    if(!sane_layout(in_ch_layout)){
+
+        av_get_channel_layout_string(buf, sizeof(buf), -1, s->in_ch_layout);
+
+        av_log(s, AV_LOG_ERROR, ""Input channel layout '%s' is not supported\n"", buf);
+
+        return AVERROR(EINVAL);
+
+    }
+
+
+
+    if(!sane_layout(out_ch_layout)){
+
+        av_get_channel_layout_string(buf, sizeof(buf), -1, s->out_ch_layout);
+
+        av_log(s, AV_LOG_ERROR, ""Output channel layout '%s' is not supported\n"", buf);
+
+        return AVERROR(EINVAL);
+
+    }
+
+
+
+    memset(s->matrix, 0, sizeof(s->matrix));
+
+    for(i=0; i<FF_ARRAY_ELEMS(matrix); i++){
+
+        if(in_ch_layout & out_ch_layout & (1ULL<<i))
+
+            matrix[i][i]= 1.0;
+
+    }
+
+
+
+    unaccounted= in_ch_layout & ~out_ch_layout;
+
+
+
+//FIXME implement dolby surround
+
+//FIXME implement full ac3
+
+
+
+
+
+    if(unaccounted & AV_CH_FRONT_CENTER){
+
+        if((out_ch_layout & AV_CH_LAYOUT_STEREO) == AV_CH_LAYOUT_STEREO){
+
+            if(in_ch_layout & AV_CH_LAYOUT_STEREO) {
+
+                matrix[ FRONT_LEFT][FRONT_CENTER]+= s->clev;
+
+                matrix[FRONT_RIGHT][FRONT_CENTER]+= s->clev;
+
+            } else {
+
+                matrix[ FRONT_LEFT][FRONT_CENTER]+= M_SQRT1_2;
+
+                matrix[FRONT_RIGHT][FRONT_CENTER]+= M_SQRT1_2;
+
+            }
+
+        }else
+
+            av_assert0(0);
+
+    }
+
+    if(unaccounted & AV_CH_LAYOUT_STEREO){
+
+        if(out_ch_layout & AV_CH_FRONT_CENTER){
+
+            matrix[FRONT_CENTER][ FRONT_LEFT]+= M_SQRT1_2;
+
+            matrix[FRONT_CENTER][FRONT_RIGHT]+= M_SQRT1_2;
+
+            if(in_ch_layout & AV_CH_FRONT_CENTER)
+
+                matrix[FRONT_CENTER][ FRONT_CENTER] = s->clev*sqrt(2);
+
+        }else
+
+            av_assert0(0);
+
+    }
+
+
+
+    if(unaccounted & AV_CH_BACK_CENTER){
+
+        if(out_ch_layout & AV_CH_BACK_LEFT){
+
+            matrix[ BACK_LEFT][BACK_CENTER]+= M_SQRT1_2;
+
+            matrix[BACK_RIGHT][BACK_CENTER]+= M_SQRT1_2;
+
+        }else if(out_ch_layout & AV_CH_SIDE_LEFT){
+
+            matrix[ SIDE_LEFT][BACK_CENTER]+= M_SQRT1_2;
+
+            matrix[SIDE_RIGHT][BACK_CENTER]+= M_SQRT1_2;
+
+        }else if(out_ch_layout & AV_CH_FRONT_LEFT){
+
+            if (matrix_encoding == AV_MATRIX_ENCODING_DOLBY ||
+
+                matrix_encoding == AV_MATRIX_ENCODING_DPLII) {
+
+                if (unaccounted & (AV_CH_BACK_LEFT | AV_CH_SIDE_LEFT)) {
+
+                    matrix[FRONT_LEFT ][BACK_CENTER] -= s->slev * M_SQRT1_2;
+
+                    matrix[FRONT_RIGHT][BACK_CENTER] += s->slev * M_SQRT1_2;
+
+                } else {
+
+                    matrix[FRONT_LEFT ][BACK_CENTER] -= s->slev;
+
+                    matrix[FRONT_RIGHT][BACK_CENTER] += s->slev;
+
+                }
+
+            } else {
+
+                matrix[ FRONT_LEFT][BACK_CENTER]+= s->slev*M_SQRT1_2;
+
+                matrix[FRONT_RIGHT][BACK_CENTER]+= s->slev*M_SQRT1_2;
+
+            }
+
+        }else if(out_ch_layout & AV_CH_FRONT_CENTER){
+
+            matrix[ FRONT_CENTER][BACK_CENTER]+= s->slev*M_SQRT1_2;
+
+        }else
+
+            av_assert0(0);
+
+    }
+
+    if(unaccounted & AV_CH_BACK_LEFT){
+
+        if(out_ch_layout & AV_CH_BACK_CENTER){
+
+            matrix[BACK_CENTER][ BACK_LEFT]+= M_SQRT1_2;
+
+            matrix[BACK_CENTER][BACK_RIGHT]+= M_SQRT1_2;
+
+        }else if(out_ch_layout & AV_CH_SIDE_LEFT){
+
+            if(in_ch_layout & AV_CH_SIDE_LEFT){
+
+                matrix[ SIDE_LEFT][ BACK_LEFT]+= M_SQRT1_2;
+
+                matrix[SIDE_RIGHT][BACK_RIGHT]+= M_SQRT1_2;
+
+            }else{
+
+            matrix[ SIDE_LEFT][ BACK_LEFT]+= 1.0;
+
+            matrix[SIDE_RIGHT][BACK_RIGHT]+= 1.0;
+
+            }
+
+        }else if(out_ch_layout & AV_CH_FRONT_LEFT){
+
+            if (matrix_encoding == AV_MATRIX_ENCODING_DOLBY) {
+
+                matrix[FRONT_LEFT ][BACK_LEFT ] -= s->slev * M_SQRT1_2;
+
+                matrix[FRONT_LEFT ][BACK_RIGHT] -= s->slev * M_SQRT1_2;
+
+                matrix[FRONT_RIGHT][BACK_LEFT ] += s->slev * M_SQRT1_2;
+
+                matrix[FRONT_RIGHT][BACK_RIGHT] += s->slev * M_SQRT1_2;
+
+            } else if (matrix_encoding == AV_MATRIX_ENCODING_DPLII) {
+
+                matrix[FRONT_LEFT ][BACK_LEFT ] -= s->slev * SQRT3_2;
+
+                matrix[FRONT_LEFT ][BACK_RIGHT] -= s->slev * M_SQRT1_2;
+
+                matrix[FRONT_RIGHT][BACK_LEFT ] += s->slev * M_SQRT1_2;
+
+                matrix[FRONT_RIGHT][BACK_RIGHT] += s->slev * SQRT3_2;
+
+            } else {
+
+                matrix[ FRONT_LEFT][ BACK_LEFT] += s->slev;
+
+                matrix[FRONT_RIGHT][BACK_RIGHT] += s->slev;
+
+            }
+
+        }else if(out_ch_layout & AV_CH_FRONT_CENTER){
+
+            matrix[ FRONT_CENTER][BACK_LEFT ]+= s->slev*M_SQRT1_2;
+
+            matrix[ FRONT_CENTER][BACK_RIGHT]+= s->slev*M_SQRT1_2;
+
+        }else
+
+            av_assert0(0);
+
+    }
+
+
+
+    if(unaccounted & AV_CH_SIDE_LEFT){
+
+        if(out_ch_layout & AV_CH_BACK_LEFT){
+
+            /* if back channels do not exist in the input, just copy side
+
+               channels to back channels, otherwise mix side into back */
+
+            if (in_ch_layout & AV_CH_BACK_LEFT) {
+
+                matrix[BACK_LEFT ][SIDE_LEFT ] += M_SQRT1_2;
+
+                matrix[BACK_RIGHT][SIDE_RIGHT] += M_SQRT1_2;
+
+            } else {
+
+                matrix[BACK_LEFT ][SIDE_LEFT ] += 1.0;
+
+                matrix[BACK_RIGHT][SIDE_RIGHT] += 1.0;
+
+            }
+
+        }else if(out_ch_layout & AV_CH_BACK_CENTER){
+
+            matrix[BACK_CENTER][ SIDE_LEFT]+= M_SQRT1_2;
+
+            matrix[BACK_CENTER][SIDE_RIGHT]+= M_SQRT1_2;
+
+        }else if(out_ch_layout & AV_CH_FRONT_LEFT){
+
+            if (matrix_encoding == AV_MATRIX_ENCODING_DOLBY) {
+
+                matrix[FRONT_LEFT ][SIDE_LEFT ] -= s->slev * M_SQRT1_2;
+
+                matrix[FRONT_LEFT ][SIDE_RIGHT] -= s->slev * M_SQRT1_2;
+
+                matrix[FRONT_RIGHT][SIDE_LEFT ] += s->slev * M_SQRT1_2;
+
+                matrix[FRONT_RIGHT][SIDE_RIGHT] += s->slev * M_SQRT1_2;
+
+            } else if (matrix_encoding == AV_MATRIX_ENCODING_DPLII) {
+
+                matrix[FRONT_LEFT ][SIDE_LEFT ] -= s->slev * SQRT3_2;
+
+                matrix[FRONT_LEFT ][SIDE_RIGHT] -= s->slev * M_SQRT1_2;
+
+                matrix[FRONT_RIGHT][SIDE_LEFT ] += s->slev * M_SQRT1_2;
+
+                matrix[FRONT_RIGHT][SIDE_RIGHT] += s->slev * SQRT3_2;
+
+            } else {
+
+                matrix[ FRONT_LEFT][ SIDE_LEFT] += s->slev;
+
+                matrix[FRONT_RIGHT][SIDE_RIGHT] += s->slev;
+
+            }
+
+        }else if(out_ch_layout & AV_CH_FRONT_CENTER){
+
+            matrix[ FRONT_CENTER][SIDE_LEFT ]+= s->slev*M_SQRT1_2;
+
+            matrix[ FRONT_CENTER][SIDE_RIGHT]+= s->slev*M_SQRT1_2;
+
+        }else
+
+            av_assert0(0);
+
+    }
+
+
+
+    if(unaccounted & AV_CH_FRONT_LEFT_OF_CENTER){
+
+        if(out_ch_layout & AV_CH_FRONT_LEFT){
+
+            matrix[ FRONT_LEFT][ FRONT_LEFT_OF_CENTER]+= 1.0;
+
+            matrix[FRONT_RIGHT][FRONT_RIGHT_OF_CENTER]+= 1.0;
+
+        }else if(out_ch_layout & AV_CH_FRONT_CENTER){
+
+            matrix[ FRONT_CENTER][ FRONT_LEFT_OF_CENTER]+= M_SQRT1_2;
+
+            matrix[ FRONT_CENTER][FRONT_RIGHT_OF_CENTER]+= M_SQRT1_2;
+
+        }else
+
+            av_assert0(0);
+
+    }
+
+    /* mix LFE into front left/right or center */
+
+    if (unaccounted & AV_CH_LOW_FREQUENCY) {
+
+        if (out_ch_layout & AV_CH_FRONT_CENTER) {
+
+            matrix[FRONT_CENTER][LOW_FREQUENCY] += s->lfe_mix_level;
+
+        } else if (out_ch_layout & AV_CH_FRONT_LEFT) {
+
+            matrix[FRONT_LEFT ][LOW_FREQUENCY] += s->lfe_mix_level * M_SQRT1_2;
+
+            matrix[FRONT_RIGHT][LOW_FREQUENCY] += s->lfe_mix_level * M_SQRT1_2;
+
+        } else
+
+            av_assert0(0);
+
+    }
+
+
+
+    for(out_i=i=0; i<64; i++){
+
+        double sum=0;
+
+        int in_i=0;
+
+        for(j=0; j<64; j++){
+
+            if (i < FF_ARRAY_ELEMS(matrix) && j < FF_ARRAY_ELEMS(matrix[0]))
+
+                s->matrix[out_i][in_i]= matrix[i][j];
+
+            else
+
+                s->matrix[out_i][in_i]= i == j && (in_ch_layout & out_ch_layout & (1ULL<<i));
+
+            sum += fabs(s->matrix[out_i][in_i]);
+
+            if(in_ch_layout & (1ULL<<j))
+
+                in_i++;
+
+        }
+
+        maxcoef= FFMAX(maxcoef, sum);
+
+        if(out_ch_layout & (1ULL<<i))
+
+            out_i++;
+
+    }
+
+    if(s->rematrix_volume  < 0)
+
+        maxcoef = -s->rematrix_volume;
+
+
+
+    if (s->rematrix_maxval > 0) {
+
+        maxval = s->rematrix_maxval;
+
+    } else if (   av_get_packed_sample_fmt(s->out_sample_fmt) < AV_SAMPLE_FMT_FLT
+
+               || av_get_packed_sample_fmt(s->int_sample_fmt) < AV_SAMPLE_FMT_FLT) {
+
+        maxval = 1.0;
+
+    } else
+
+        maxval = INT_MAX;
+
+
+
+    if(maxcoef > maxval || s->rematrix_volume  < 0){
+
+        maxcoef /= maxval;
+
+        for(i=0; i<SWR_CH_MAX; i++)
+
+            for(j=0; j<SWR_CH_MAX; j++){
+
+                s->matrix[i][j] /= maxcoef;
+
+            }
+
+    }
+
+
+
+    if(s->rematrix_volume > 0){
+
+        for(i=0; i<SWR_CH_MAX; i++)
+
+            for(j=0; j<SWR_CH_MAX; j++){
+
+                s->matrix[i][j] *= s->rematrix_volume;
+
+            }
+
+    }
+
+
+
+    for(i=0; i<av_get_channel_layout_nb_channels(out_ch_layout); i++){
+
+        for(j=0; j<av_get_channel_layout_nb_channels(in_ch_layout); j++){
+
+            av_log(NULL, AV_LOG_DEBUG, ""%f "", s->matrix[i][j]);
+
+        }
+
+        av_log(NULL, AV_LOG_DEBUG, ""\n"");
+
+    }
+
+    return 0;
+
+}
+",1,7634
+4678339e745dac8fa4288541b79f1577f19bb4c2,"void ff_celt_quant_bands(CeltFrame *f, OpusRangeCoder *rc)
+
+{
+
+    float lowband_scratch[8 * 22];
+
+    float norm1[2 * 8 * 100];
+
+    float *norm2 = norm1 + 8 * 100;
+
+
+
+    int totalbits = (f->framebits << 3) - f->anticollapse_needed;
+
+
+
+    int update_lowband = 1;
+
+    int lowband_offset = 0;
+
+
+
+    int i, j;
+
+
+
+    for (i = f->start_band; i < f->end_band; i++) {
+
+        uint32_t cm[2] = { (1 << f->blocks) - 1, (1 << f->blocks) - 1 };
+
+        int band_offset = ff_celt_freq_bands[i] << f->size;
+
+        int band_size   = ff_celt_freq_range[i] << f->size;
+
+        float *X = f->block[0].coeffs + band_offset;
+
+        float *Y = (f->channels == 2) ? f->block[1].coeffs + band_offset : NULL;
+
+        float *norm_loc1, *norm_loc2;
+
+
+
+        int consumed = opus_rc_tell_frac(rc);
+
+        int effective_lowband = -1;
+
+        int b = 0;
+
+
+
+        /* Compute how many bits we want to allocate to this band */
+
+        if (i != f->start_band)
+
+            f->remaining -= consumed;
+
+        f->remaining2 = totalbits - consumed - 1;
+
+        if (i <= f->coded_bands - 1) {
+
+            int curr_balance = f->remaining / FFMIN(3, f->coded_bands-i);
+
+            b = av_clip_uintp2(FFMIN(f->remaining2 + 1, f->pulses[i] + curr_balance), 14);
+
+        }
+
+
+
+        if ((ff_celt_freq_bands[i] - ff_celt_freq_range[i] >= ff_celt_freq_bands[f->start_band] ||
+
+            i == f->start_band + 1) && (update_lowband || lowband_offset == 0))
+
+            lowband_offset = i;
+
+
+
+        if (i == f->start_band + 1) {
+
+            /* Special Hybrid Folding (RFC 8251 section 9). Copy the first band into
+
+            the second to ensure the second band never has to use the LCG. */
+
+            int offset = 8 * ff_celt_freq_bands[i];
+
+            int count = 8 * (ff_celt_freq_range[i] - ff_celt_freq_range[i-1]);
+
+
+
+            memcpy(&norm1[offset], &norm1[offset - count], count * sizeof(float));
+
+
+
+            if (f->channels == 2)
+
+                memcpy(&norm2[offset], &norm2[offset - count], count * sizeof(float));
+
+        }
+
+
+
+        /* Get a conservative estimate of the collapse_mask's for the bands we're
+
+           going to be folding from. */
+
+        if (lowband_offset != 0 && (f->spread != CELT_SPREAD_AGGRESSIVE ||
+
+                                    f->blocks > 1 || f->tf_change[i] < 0)) {
+
+            int foldstart, foldend;
+
+
+
+            /* This ensures we never repeat spectral content within one band */
+
+            effective_lowband = FFMAX(ff_celt_freq_bands[f->start_band],
+
+                                      ff_celt_freq_bands[lowband_offset] - ff_celt_freq_range[i]);
+
+            foldstart = lowband_offset;
+
+            while (ff_celt_freq_bands[--foldstart] > effective_lowband);
+
+            foldend = lowband_offset - 1;
+
+            while (++foldend < i && ff_celt_freq_bands[foldend] < effective_lowband + ff_celt_freq_range[i]);
+
+
+
+            cm[0] = cm[1] = 0;
+
+            for (j = foldstart; j < foldend; j++) {
+
+                cm[0] |= f->block[0].collapse_masks[j];
+
+                cm[1] |= f->block[f->channels - 1].collapse_masks[j];
+
+            }
+
+        }
+
+
+
+        if (f->dual_stereo && i == f->intensity_stereo) {
+
+            /* Switch off dual stereo to do intensity */
+
+            f->dual_stereo = 0;
+
+            for (j = ff_celt_freq_bands[f->start_band] << f->size; j < band_offset; j++)
+
+                norm1[j] = (norm1[j] + norm2[j]) / 2;
+
+        }
+
+
+
+        norm_loc1 = effective_lowband != -1 ? norm1 + (effective_lowband << f->size) : NULL;
+
+        norm_loc2 = effective_lowband != -1 ? norm2 + (effective_lowband << f->size) : NULL;
+
+
+
+        if (f->dual_stereo) {
+
+            cm[0] = f->pvq->quant_band(f->pvq, f, rc, i, X, NULL, band_size, b >> 1,
+
+                                       f->blocks, norm_loc1, f->size,
+
+                                       norm1 + band_offset, 0, 1.0f,
+
+                                       lowband_scratch, cm[0]);
+
+
+
+            cm[1] = f->pvq->quant_band(f->pvq, f, rc, i, Y, NULL, band_size, b >> 1,
+
+                                       f->blocks, norm_loc2, f->size,
+
+                                       norm2 + band_offset, 0, 1.0f,
+
+                                       lowband_scratch, cm[1]);
+
+        } else {
+
+            cm[0] = f->pvq->quant_band(f->pvq, f, rc, i, X,    Y, band_size, b >> 0,
+
+                                       f->blocks, norm_loc1, f->size,
+
+                                       norm1 + band_offset, 0, 1.0f,
+
+                                       lowband_scratch, cm[0] | cm[1]);
+
+            cm[1] = cm[0];
+
+        }
+
+
+
+        f->block[0].collapse_masks[i]               = (uint8_t)cm[0];
+
+        f->block[f->channels - 1].collapse_masks[i] = (uint8_t)cm[1];
+
+        f->remaining += f->pulses[i] + consumed;
+
+
+
+        /* Update the folding position only as long as we have 1 bit/sample depth */
+
+        update_lowband = (b > band_size << 3);
+
+    }
+
+}
+",1,11106
+9dd54d74226eaaa1087ba994ba212bf9a107c97d,"static int v4l2_read_header(AVFormatContext *s1)
+
+{
+
+    struct video_data *s = s1->priv_data;
+
+    AVStream *st;
+
+    int res = 0;
+
+    uint32_t desired_format;
+
+    enum AVCodecID codec_id = AV_CODEC_ID_NONE;
+
+    enum AVPixelFormat pix_fmt = AV_PIX_FMT_NONE;
+
+    struct v4l2_input input = { 0 };
+
+
+
+    st = avformat_new_stream(s1, NULL);
+
+    if (!st)
+
+        return AVERROR(ENOMEM);
+
+
+
+#if CONFIG_LIBV4L2
+
+    /* silence libv4l2 logging. if fopen() fails v4l2_log_file will be NULL
+
+       and errors will get sent to stderr */
+
+    v4l2_log_file = fopen(""/dev/null"", ""w"");
+
+#endif
+
+
+
+    s->fd = device_open(s1);
+
+    if (s->fd < 0)
+
+        return s->fd;
+
+
+
+    if (s->channel != -1) {
+
+        /* set video input */
+
+        av_log(s1, AV_LOG_DEBUG, ""Selecting input_channel: %d\n"", s->channel);
+
+        if (v4l2_ioctl(s->fd, VIDIOC_S_INPUT, &s->channel) < 0) {
+
+            res = AVERROR(errno);
+
+            av_log(s1, AV_LOG_ERROR, ""ioctl(VIDIOC_S_INPUT): %s\n"", av_err2str(res));
+
+            return res;
+
+        }
+
+    } else {
+
+        /* get current video input */
+
+        if (v4l2_ioctl(s->fd, VIDIOC_G_INPUT, &s->channel) < 0) {
+
+            res = AVERROR(errno);
+
+            av_log(s1, AV_LOG_ERROR, ""ioctl(VIDIOC_G_INPUT): %s\n"", av_err2str(res));
+
+            return res;
+
+        }
+
+    }
+
+
+
+    /* enum input */
+
+    input.index = s->channel;
+
+    if (v4l2_ioctl(s->fd, VIDIOC_ENUMINPUT, &input) < 0) {
+
+        res = AVERROR(errno);
+
+        av_log(s1, AV_LOG_ERROR, ""ioctl(VIDIOC_ENUMINPUT): %s\n"", av_err2str(res));
+
+        return res;
+
+    }
+
+    s->std_id = input.std;
+
+    av_log(s1, AV_LOG_DEBUG, ""Current input_channel: %d, input_name: %s\n"",
+
+           s->channel, input.name);
+
+
+
+    if (s->list_format) {
+
+        list_formats(s1, s->fd, s->list_format);
+
+        return AVERROR_EXIT;
+
+    }
+
+
+
+    if (s->list_standard) {
+
+        list_standards(s1);
+
+        return AVERROR_EXIT;
+
+    }
+
+
+
+    avpriv_set_pts_info(st, 64, 1, 1000000); /* 64 bits pts in us */
+
+
+
+    if (s->pixel_format) {
+
+        AVCodec *codec = avcodec_find_decoder_by_name(s->pixel_format);
+
+
+
+        if (codec)
+
+            s1->video_codec_id = codec->id;
+
+
+
+        pix_fmt = av_get_pix_fmt(s->pixel_format);
+
+
+
+        if (pix_fmt == AV_PIX_FMT_NONE && !codec) {
+
+            av_log(s1, AV_LOG_ERROR, ""No such input format: %s.\n"",
+
+                   s->pixel_format);
+
+
+
+            return AVERROR(EINVAL);
+
+        }
+
+    }
+
+
+
+    if (!s->width && !s->height) {
+
+        struct v4l2_format fmt;
+
+
+
+        av_log(s1, AV_LOG_VERBOSE,
+
+               ""Querying the device for the current frame size\n"");
+
+        fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+
+        if (v4l2_ioctl(s->fd, VIDIOC_G_FMT, &fmt) < 0) {
+
+            res = AVERROR(errno);
+
+            av_log(s1, AV_LOG_ERROR, ""ioctl(VIDIOC_G_FMT): %s\n"", av_err2str(res));
+
+            return res;
+
+        }
+
+
+
+        s->width  = fmt.fmt.pix.width;
+
+        s->height = fmt.fmt.pix.height;
+
+        av_log(s1, AV_LOG_VERBOSE,
+
+               ""Setting frame size to %dx%d\n"", s->width, s->height);
+
+    }
+
+
+
+    res = device_try_init(s1, pix_fmt, &s->width, &s->height, &desired_format, &codec_id);
+
+    if (res < 0) {
+
+        v4l2_close(s->fd);
+
+        return res;
+
+    }
+
+
+
+    /* If no pixel_format was specified, the codec_id was not known up
+
+     * until now. Set video_codec_id in the context, as codec_id will
+
+     * not be available outside this function
+
+     */
+
+    if (codec_id != AV_CODEC_ID_NONE && s1->video_codec_id == AV_CODEC_ID_NONE)
+
+        s1->video_codec_id = codec_id;
+
+
+
+    if ((res = av_image_check_size(s->width, s->height, 0, s1)) < 0)
+
+        return res;
+
+
+
+    s->frame_format = desired_format;
+
+
+
+    if ((res = v4l2_set_parameters(s1)) < 0)
+
+        return res;
+
+
+
+    st->codec->pix_fmt = fmt_v4l2ff(desired_format, codec_id);
+
+    s->frame_size =
+
+        avpicture_get_size(st->codec->pix_fmt, s->width, s->height);
+
+
+
+    if ((res = mmap_init(s1)) ||
+
+        (res = mmap_start(s1)) < 0) {
+
+        v4l2_close(s->fd);
+
+        return res;
+
+    }
+
+
+
+    s->top_field_first = first_field(s->fd);
+
+
+
+    st->codec->codec_type = AVMEDIA_TYPE_VIDEO;
+
+    st->codec->codec_id = codec_id;
+
+    if (codec_id == AV_CODEC_ID_RAWVIDEO)
+
+        st->codec->codec_tag =
+
+            avcodec_pix_fmt_to_codec_tag(st->codec->pix_fmt);
+
+    if (desired_format == V4L2_PIX_FMT_YVU420)
+
+        st->codec->codec_tag = MKTAG('Y', 'V', '1', '2');
+
+    else if (desired_format == V4L2_PIX_FMT_YVU410)
+
+        st->codec->codec_tag = MKTAG('Y', 'V', 'U', '9');
+
+    st->codec->width = s->width;
+
+    st->codec->height = s->height;
+
+    st->codec->bit_rate = s->frame_size * av_q2d(st->avg_frame_rate) * 8;
+
+
+
+    return 0;
+
+}
+",1,17881
+39bbdebb1ed8eb9c9b0cd6db85afde6ba89d86e4,"static void destroy_buffers(SANMVideoContext *ctx)
+
+{
+
+    av_freep(&ctx->frm0);
+
+    av_freep(&ctx->frm1);
+
+    av_freep(&ctx->frm2);
+
+    av_freep(&ctx->stored_frame);
+
+    av_freep(&ctx->rle_buf);
+
+    ctx->frm0_size =
+
+    ctx->frm1_size =
+
+    ctx->frm2_size = 0;
+
+
+}",1,615
+15ee419b7abaf17f8c662c145fe93d3dbf43282b,"static int pcx_decode_frame(AVCodecContext *avctx, void *data, int *got_frame,
+
+                            AVPacket *avpkt)
+
+{
+
+    const uint8_t *buf = avpkt->data;
+
+    int buf_size       = avpkt->size;
+
+    AVFrame *const p   = data;
+
+    int compressed, xmin, ymin, xmax, ymax;
+
+    unsigned int w, h, bits_per_pixel, bytes_per_line, nplanes, stride, y, x,
+
+                 bytes_per_scanline;
+
+    uint8_t *ptr;
+
+    const uint8_t *buf_end = buf + buf_size;
+
+    const uint8_t *bufstart = buf;
+
+    uint8_t *scanline;
+
+    int ret = -1;
+
+
+
+    if (buf[0] != 0x0a || buf[1] > 5) {
+
+        av_log(avctx, AV_LOG_ERROR, ""this is not PCX encoded data\n"");
+
+        return AVERROR_INVALIDDATA;
+
+    }
+
+
+
+    compressed = buf[2];
+
+    xmin       = AV_RL16(buf + 4);
+
+    ymin       = AV_RL16(buf + 6);
+
+    xmax       = AV_RL16(buf + 8);
+
+    ymax       = AV_RL16(buf + 10);
+
+
+
+    if (xmax < xmin || ymax < ymin) {
+
+        av_log(avctx, AV_LOG_ERROR, ""invalid image dimensions\n"");
+
+        return AVERROR_INVALIDDATA;
+
+    }
+
+
+
+    w = xmax - xmin + 1;
+
+    h = ymax - ymin + 1;
+
+
+
+    bits_per_pixel     = buf[3];
+
+    bytes_per_line     = AV_RL16(buf + 66);
+
+    nplanes            = buf[65];
+
+    bytes_per_scanline = nplanes * bytes_per_line;
+
+
+
+    if (bytes_per_scanline < (w * bits_per_pixel * nplanes + 7) / 8 ||
+
+        (!compressed && bytes_per_scanline > buf_size / h)) {
+
+        av_log(avctx, AV_LOG_ERROR, ""PCX data is corrupted\n"");
+
+        return AVERROR_INVALIDDATA;
+
+    }
+
+
+
+    switch ((nplanes << 8) + bits_per_pixel) {
+
+    case 0x0308:
+
+        avctx->pix_fmt = AV_PIX_FMT_RGB24;
+
+        break;
+
+    case 0x0108:
+
+    case 0x0104:
+
+    case 0x0102:
+
+    case 0x0101:
+
+    case 0x0401:
+
+    case 0x0301:
+
+    case 0x0201:
+
+        avctx->pix_fmt = AV_PIX_FMT_PAL8;
+
+        break;
+
+    default:
+
+        av_log(avctx, AV_LOG_ERROR, ""invalid PCX file\n"");
+
+        return AVERROR_INVALIDDATA;
+
+    }
+
+
+
+    buf += 128;
+
+
+
+    if ((ret = ff_set_dimensions(avctx, w, h)) < 0)
+
+        return ret;
+
+
+
+    if ((ret = ff_get_buffer(avctx, p, 0)) < 0) {
+
+        av_log(avctx, AV_LOG_ERROR, ""get_buffer() failed\n"");
+
+        return ret;
+
+    }
+
+
+
+    p->pict_type = AV_PICTURE_TYPE_I;
+
+
+
+    ptr    = p->data[0];
+
+    stride = p->linesize[0];
+
+
+
+    scanline = av_malloc(bytes_per_scanline);
+
+    if (!scanline)
+
+        return AVERROR(ENOMEM);
+
+
+
+    if (nplanes == 3 && bits_per_pixel == 8) {
+
+        for (y = 0; y < h; y++) {
+
+            buf = pcx_rle_decode(buf, buf_end,
+
+                                 scanline, bytes_per_scanline, compressed);
+
+
+
+            for (x = 0; x < w; x++) {
+
+                ptr[3 * x]     = scanline[x];
+
+                ptr[3 * x + 1] = scanline[x + bytes_per_line];
+
+                ptr[3 * x + 2] = scanline[x + (bytes_per_line << 1)];
+
+            }
+
+
+
+            ptr += stride;
+
+        }
+
+    } else if (nplanes == 1 && bits_per_pixel == 8) {
+
+        const uint8_t *palstart = bufstart + buf_size - 769;
+
+
+
+        if (buf_size < 769) {
+
+            av_log(avctx, AV_LOG_ERROR, ""File is too short\n"");
+
+            ret = avctx->err_recognition & AV_EF_EXPLODE ?
+
+                  AVERROR_INVALIDDATA : buf_size;
+
+            goto end;
+
+        }
+
+
+
+        for (y = 0; y < h; y++, ptr += stride) {
+
+            buf = pcx_rle_decode(buf, buf_end,
+
+                                 scanline, bytes_per_scanline, compressed);
+
+            memcpy(ptr, scanline, w);
+
+        }
+
+
+
+        if (buf != palstart) {
+
+            av_log(avctx, AV_LOG_WARNING, ""image data possibly corrupted\n"");
+
+            buf = palstart;
+
+        }
+
+        if (*buf++ != 12) {
+
+            av_log(avctx, AV_LOG_ERROR, ""expected palette after image data\n"");
+
+            ret = avctx->err_recognition & AV_EF_EXPLODE ?
+
+                  AVERROR_INVALIDDATA : buf_size;
+
+            goto end;
+
+        }
+
+    } else if (nplanes == 1) {   /* all packed formats, max. 16 colors */
+
+        GetBitContext s;
+
+
+
+        for (y = 0; y < h; y++) {
+
+            init_get_bits(&s, scanline, bytes_per_scanline << 3);
+
+
+
+            buf = pcx_rle_decode(buf, buf_end,
+
+                                 scanline, bytes_per_scanline, compressed);
+
+
+
+            for (x = 0; x < w; x++)
+
+                ptr[x] = get_bits(&s, bits_per_pixel);
+
+            ptr += stride;
+
+        }
+
+    } else {    /* planar, 4, 8 or 16 colors */
+
+        int i;
+
+
+
+        for (y = 0; y < h; y++) {
+
+            buf = pcx_rle_decode(buf, buf_end,
+
+                                 scanline, bytes_per_scanline, compressed);
+
+
+
+            for (x = 0; x < w; x++) {
+
+                int m = 0x80 >> (x & 7), v = 0;
+
+                for (i = nplanes - 1; i >= 0; i--) {
+
+                    v <<= 1;
+
+                    v  += !!(scanline[i * bytes_per_line + (x >> 3)] & m);
+
+                }
+
+                ptr[x] = v;
+
+            }
+
+            ptr += stride;
+
+        }
+
+    }
+
+
+
+    if (nplanes == 1 && bits_per_pixel == 8) {
+
+        pcx_palette(&buf, (uint32_t *)p->data[1], 256);
+
+    } else if (bits_per_pixel < 8) {
+
+        const uint8_t *palette = bufstart + 16;
+
+        pcx_palette(&palette, (uint32_t *)p->data[1], 16);
+
+    }
+
+
+
+    *got_frame = 1;
+
+
+
+    ret = buf - bufstart;
+
+end:
+
+    av_free(scanline);
+
+    return ret;
+
+}
+",1,15259
+32baeafeee4f8446c2c3720b9223ad2166ca9d30,"static void xvid_idct_put(uint8_t *dest, ptrdiff_t line_size, int16_t *block)
+
+{
+
+    ff_xvid_idct(block);
+
+    ff_put_pixels_clamped(block, dest, line_size);
+
+}
+",1,22532
+049b20b287397b68804649673da32043d3908b77,"static void adpcm_compress_trellis(AVCodecContext *avctx,
+
+                                   const int16_t *samples, uint8_t *dst,
+
+                                   ADPCMChannelStatus *c, int n, int stride)
+
+{
+
+    //FIXME 6% faster if frontier is a compile-time constant
+
+    ADPCMEncodeContext *s = avctx->priv_data;
+
+    const int frontier = 1 << avctx->trellis;
+
+    const int version  = avctx->codec->id;
+
+    TrellisPath *paths       = s->paths, *p;
+
+    TrellisNode *node_buf    = s->node_buf;
+
+    TrellisNode **nodep_buf  = s->nodep_buf;
+
+    TrellisNode **nodes      = nodep_buf; // nodes[] is always sorted by .ssd
+
+    TrellisNode **nodes_next = nodep_buf + frontier;
+
+    int pathn = 0, froze = -1, i, j, k, generation = 0;
+
+    uint8_t *hash = s->trellis_hash;
+
+    memset(hash, 0xff, 65536 * sizeof(*hash));
+
+
+
+    memset(nodep_buf, 0, 2 * frontier * sizeof(*nodep_buf));
+
+    nodes[0]          = node_buf + frontier;
+
+    nodes[0]->ssd     = 0;
+
+    nodes[0]->path    = 0;
+
+    nodes[0]->step    = c->step_index;
+
+    nodes[0]->sample1 = c->sample1;
+
+    nodes[0]->sample2 = c->sample2;
+
+    if (version == AV_CODEC_ID_ADPCM_IMA_WAV ||
+
+        version == AV_CODEC_ID_ADPCM_IMA_QT  ||
+
+        version == AV_CODEC_ID_ADPCM_SWF)
+
+        nodes[0]->sample1 = c->prev_sample;
+
+    if (version == AV_CODEC_ID_ADPCM_MS)
+
+        nodes[0]->step = c->idelta;
+
+    if (version == AV_CODEC_ID_ADPCM_YAMAHA) {
+
+        if (c->step == 0) {
+
+            nodes[0]->step    = 127;
+
+            nodes[0]->sample1 = 0;
+
+        } else {
+
+            nodes[0]->step    = c->step;
+
+            nodes[0]->sample1 = c->predictor;
+
+        }
+
+    }
+
+
+
+    for (i = 0; i < n; i++) {
+
+        TrellisNode *t = node_buf + frontier*(i&1);
+
+        TrellisNode **u;
+
+        int sample   = samples[i * stride];
+
+        int heap_pos = 0;
+
+        memset(nodes_next, 0, frontier * sizeof(TrellisNode*));
+
+        for (j = 0; j < frontier && nodes[j]; j++) {
+
+            // higher j have higher ssd already, so they're likely
+
+            // to yield a suboptimal next sample too
+
+            const int range = (j < frontier / 2) ? 1 : 0;
+
+            const int step  = nodes[j]->step;
+
+            int nidx;
+
+            if (version == AV_CODEC_ID_ADPCM_MS) {
+
+                const int predictor = ((nodes[j]->sample1 * c->coeff1) +
+
+                                       (nodes[j]->sample2 * c->coeff2)) / 64;
+
+                const int div  = (sample - predictor) / step;
+
+                const int nmin = av_clip(div-range, -8, 6);
+
+                const int nmax = av_clip(div+range, -7, 7);
+
+                for (nidx = nmin; nidx <= nmax; nidx++) {
+
+                    const int nibble = nidx & 0xf;
+
+                    int dec_sample   = predictor + nidx * step;
+
+#define STORE_NODE(NAME, STEP_INDEX)\
+
+                    int d;\
+
+                    uint32_t ssd;\
+
+                    int pos;\
+
+                    TrellisNode *u;\
+
+                    uint8_t *h;\
+
+                    dec_sample = av_clip_int16(dec_sample);\
+
+                    d = sample - dec_sample;\
+
+                    ssd = nodes[j]->ssd + d*d;\
+
+                    /* Check for wraparound, skip such samples completely. \
+
+                     * Note, changing ssd to a 64 bit variable would be \
+
+                     * simpler, avoiding this check, but it's slower on \
+
+                     * x86 32 bit at the moment. */\
+
+                    if (ssd < nodes[j]->ssd)\
+
+                        goto next_##NAME;\
+
+                    /* Collapse any two states with the same previous sample value. \
+
+                     * One could also distinguish states by step and by 2nd to last
+
+                     * sample, but the effects of that are negligible.
+
+                     * Since nodes in the previous generation are iterated
+
+                     * through a heap, they're roughly ordered from better to
+
+                     * worse, but not strictly ordered. Therefore, an earlier
+
+                     * node with the same sample value is better in most cases
+
+                     * (and thus the current is skipped), but not strictly
+
+                     * in all cases. Only skipping samples where ssd >=
+
+                     * ssd of the earlier node with the same sample gives
+
+                     * slightly worse quality, though, for some reason. */ \
+
+                    h = &hash[(uint16_t) dec_sample];\
+
+                    if (*h == generation)\
+
+                        goto next_##NAME;\
+
+                    if (heap_pos < frontier) {\
+
+                        pos = heap_pos++;\
+
+                    } else {\
+
+                        /* Try to replace one of the leaf nodes with the new \
+
+                         * one, but try a different slot each time. */\
+
+                        pos = (frontier >> 1) +\
+
+                              (heap_pos & ((frontier >> 1) - 1));\
+
+                        if (ssd > nodes_next[pos]->ssd)\
+
+                            goto next_##NAME;\
+
+                        heap_pos++;\
+
+                    }\
+
+                    *h = generation;\
+
+                    u  = nodes_next[pos];\
+
+                    if (!u) {\
+
+                        av_assert1(pathn < FREEZE_INTERVAL << avctx->trellis);\
+
+                        u = t++;\
+
+                        nodes_next[pos] = u;\
+
+                        u->path = pathn++;\
+
+                    }\
+
+                    u->ssd  = ssd;\
+
+                    u->step = STEP_INDEX;\
+
+                    u->sample2 = nodes[j]->sample1;\
+
+                    u->sample1 = dec_sample;\
+
+                    paths[u->path].nibble = nibble;\
+
+                    paths[u->path].prev   = nodes[j]->path;\
+
+                    /* Sift the newly inserted node up in the heap to \
+
+                     * restore the heap property. */\
+
+                    while (pos > 0) {\
+
+                        int parent = (pos - 1) >> 1;\
+
+                        if (nodes_next[parent]->ssd <= ssd)\
+
+                            break;\
+
+                        FFSWAP(TrellisNode*, nodes_next[parent], nodes_next[pos]);\
+
+                        pos = parent;\
+
+                    }\
+
+                    next_##NAME:;
+
+                    STORE_NODE(ms, FFMAX(16,
+
+                               (ff_adpcm_AdaptationTable[nibble] * step) >> 8));
+
+                }
+
+            } else if (version == AV_CODEC_ID_ADPCM_IMA_WAV ||
+
+                       version == AV_CODEC_ID_ADPCM_IMA_QT  ||
+
+                       version == AV_CODEC_ID_ADPCM_SWF) {
+
+#define LOOP_NODES(NAME, STEP_TABLE, STEP_INDEX)\
+
+                const int predictor = nodes[j]->sample1;\
+
+                const int div = (sample - predictor) * 4 / STEP_TABLE;\
+
+                int nmin = av_clip(div - range, -7, 6);\
+
+                int nmax = av_clip(div + range, -6, 7);\
+
+                if (nmin <= 0)\
+
+                    nmin--; /* distinguish -0 from +0 */\
+
+                if (nmax < 0)\
+
+                    nmax--;\
+
+                for (nidx = nmin; nidx <= nmax; nidx++) {\
+
+                    const int nibble = nidx < 0 ? 7 - nidx : nidx;\
+
+                    int dec_sample = predictor +\
+
+                                    (STEP_TABLE *\
+
+                                     ff_adpcm_yamaha_difflookup[nibble]) / 8;\
+
+                    STORE_NODE(NAME, STEP_INDEX);\
+
+                }
+
+                LOOP_NODES(ima, ff_adpcm_step_table[step],
+
+                           av_clip(step + ff_adpcm_index_table[nibble], 0, 88));
+
+            } else { //AV_CODEC_ID_ADPCM_YAMAHA
+
+                LOOP_NODES(yamaha, step,
+
+                           av_clip((step * ff_adpcm_yamaha_indexscale[nibble]) >> 8,
+
+                                   127, 24567));
+
+#undef LOOP_NODES
+
+#undef STORE_NODE
+
+            }
+
+        }
+
+
+
+        u = nodes;
+
+        nodes = nodes_next;
+
+        nodes_next = u;
+
+
+
+        generation++;
+
+        if (generation == 255) {
+
+            memset(hash, 0xff, 65536 * sizeof(*hash));
+
+            generation = 0;
+
+        }
+
+
+
+        // prevent overflow
+
+        if (nodes[0]->ssd > (1 << 28)) {
+
+            for (j = 1; j < frontier && nodes[j]; j++)
+
+                nodes[j]->ssd -= nodes[0]->ssd;
+
+            nodes[0]->ssd = 0;
+
+        }
+
+
+
+        // merge old paths to save memory
+
+        if (i == froze + FREEZE_INTERVAL) {
+
+            p = &paths[nodes[0]->path];
+
+            for (k = i; k > froze; k--) {
+
+                dst[k] = p->nibble;
+
+                p = &paths[p->prev];
+
+            }
+
+            froze = i;
+
+            pathn = 0;
+
+            // other nodes might use paths that don't coincide with the frozen one.
+
+            // checking which nodes do so is too slow, so just kill them all.
+
+            // this also slightly improves quality, but I don't know why.
+
+            memset(nodes + 1, 0, (frontier - 1) * sizeof(TrellisNode*));
+
+        }
+
+    }
+
+
+
+    p = &paths[nodes[0]->path];
+
+    for (i = n - 1; i > froze; i--) {
+
+        dst[i] = p->nibble;
+
+        p = &paths[p->prev];
+
+    }
+
+
+
+    c->predictor  = nodes[0]->sample1;
+
+    c->sample1    = nodes[0]->sample1;
+
+    c->sample2    = nodes[0]->sample2;
+
+    c->step_index = nodes[0]->step;
+
+    c->step       = nodes[0]->step;
+
+    c->idelta     = nodes[0]->step;
+
+}
+",1,14295
+6f321e93abb27b4e7ceb228b4204aa304e95daad,"static int bdrv_qed_open(BlockDriverState *bs, int flags)
+
+{
+
+    BDRVQEDState *s = bs->opaque;
+
+    QEDHeader le_header;
+
+    int64_t file_size;
+
+    int ret;
+
+
+
+    s->bs = bs;
+
+    QSIMPLEQ_INIT(&s->allocating_write_reqs);
+
+
+
+    ret = bdrv_pread(bs->file, 0, &le_header, sizeof(le_header));
+
+    if (ret < 0) {
+
+        return ret;
+
+    }
+
+    ret = 0; /* ret should always be 0 or -errno */
+
+    qed_header_le_to_cpu(&le_header, &s->header);
+
+
+
+    if (s->header.magic != QED_MAGIC) {
+
+        return -EINVAL;
+
+    }
+
+    if (s->header.features & ~QED_FEATURE_MASK) {
+
+        /* image uses unsupported feature bits */
+
+        char buf[64];
+
+        snprintf(buf, sizeof(buf), ""%"" PRIx64,
+
+            s->header.features & ~QED_FEATURE_MASK);
+
+        qerror_report(QERR_UNKNOWN_BLOCK_FORMAT_FEATURE,
+
+            bs->device_name, ""QED"", buf);
+
+        return -ENOTSUP;
+
+    }
+
+    if (!qed_is_cluster_size_valid(s->header.cluster_size)) {
+
+        return -EINVAL;
+
+    }
+
+
+
+    /* Round down file size to the last cluster */
+
+    file_size = bdrv_getlength(bs->file);
+
+    if (file_size < 0) {
+
+        return file_size;
+
+    }
+
+    s->file_size = qed_start_of_cluster(s, file_size);
+
+
+
+    if (!qed_is_table_size_valid(s->header.table_size)) {
+
+        return -EINVAL;
+
+    }
+
+    if (!qed_is_image_size_valid(s->header.image_size,
+
+                                 s->header.cluster_size,
+
+                                 s->header.table_size)) {
+
+        return -EINVAL;
+
+    }
+
+    if (!qed_check_table_offset(s, s->header.l1_table_offset)) {
+
+        return -EINVAL;
+
+    }
+
+
+
+    s->table_nelems = (s->header.cluster_size * s->header.table_size) /
+
+                      sizeof(uint64_t);
+
+    s->l2_shift = ffs(s->header.cluster_size) - 1;
+
+    s->l2_mask = s->table_nelems - 1;
+
+    s->l1_shift = s->l2_shift + ffs(s->table_nelems) - 1;
+
+
+
+    if ((s->header.features & QED_F_BACKING_FILE)) {
+
+        if ((uint64_t)s->header.backing_filename_offset +
+
+            s->header.backing_filename_size >
+
+            s->header.cluster_size * s->header.header_size) {
+
+            return -EINVAL;
+
+        }
+
+
+
+        ret = qed_read_string(bs->file, s->header.backing_filename_offset,
+
+                              s->header.backing_filename_size, bs->backing_file,
+
+                              sizeof(bs->backing_file));
+
+        if (ret < 0) {
+
+            return ret;
+
+        }
+
+
+
+        if (s->header.features & QED_F_BACKING_FORMAT_NO_PROBE) {
+
+            pstrcpy(bs->backing_format, sizeof(bs->backing_format), ""raw"");
+
+        }
+
+    }
+
+
+
+    /* Reset unknown autoclear feature bits.  This is a backwards
+
+     * compatibility mechanism that allows images to be opened by older
+
+     * programs, which ""knock out"" unknown feature bits.  When an image is
+
+     * opened by a newer program again it can detect that the autoclear
+
+     * feature is no longer valid.
+
+     */
+
+    if ((s->header.autoclear_features & ~QED_AUTOCLEAR_FEATURE_MASK) != 0 &&
+
+        !bdrv_is_read_only(bs->file)) {
+
+        s->header.autoclear_features &= QED_AUTOCLEAR_FEATURE_MASK;
+
+
+
+        ret = qed_write_header_sync(s);
+
+        if (ret) {
+
+            return ret;
+
+        }
+
+
+
+        /* From here on only known autoclear feature bits are valid */
+
+        bdrv_flush(bs->file);
+
+    }
+
+
+
+    s->l1_table = qed_alloc_table(s);
+
+    qed_init_l2_cache(&s->l2_cache);
+
+
+
+    ret = qed_read_l1_table_sync(s);
+
+    if (ret) {
+
+        goto out;
+
+    }
+
+
+
+    /* If image was not closed cleanly, check consistency */
+
+    if (s->header.features & QED_F_NEED_CHECK) {
+
+        /* Read-only images cannot be fixed.  There is no risk of corruption
+
+         * since write operations are not possible.  Therefore, allow
+
+         * potentially inconsistent images to be opened read-only.  This can
+
+         * aid data recovery from an otherwise inconsistent image.
+
+         */
+
+        if (!bdrv_is_read_only(bs->file)) {
+
+            BdrvCheckResult result = {0};
+
+
+
+            ret = qed_check(s, &result, true);
+
+            if (!ret && !result.corruptions && !result.check_errors) {
+
+                /* Ensure fixes reach storage before clearing check bit */
+
+                bdrv_flush(s->bs);
+
+
+
+                s->header.features &= ~QED_F_NEED_CHECK;
+
+                qed_write_header_sync(s);
+
+            }
+
+        }
+
+    }
+
+
+
+out:
+
+    if (ret) {
+
+        qed_free_l2_cache(&s->l2_cache);
+
+        qemu_vfree(s->l1_table);
+
+    }
+
+    return ret;
+
+}
+",1,6631
+a9f9b7f5c70e80245983e67b8ed23212d9637645,"static int mov_text_decode_close(AVCodecContext *avctx)
+
+{
+
+    MovTextContext *m = avctx->priv_data;
+
+    mov_text_cleanup_ftab(m);
+
+
+    return 0;
+
+}",1,639
+45bbbb466cf4a6280076ea5a51f67ef5bedee345,"void helper_divl_EAX_T0(void)
+
+{
+
+    unsigned int den, q, r;
+
+    uint64_t num;
+
+    
+
+    num = ((uint32_t)EAX) | ((uint64_t)((uint32_t)EDX) << 32);
+
+    den = T0;
+
+    if (den == 0) {
+
+        raise_exception(EXCP00_DIVZ);
+
+    }
+
+#ifdef BUGGY_GCC_DIV64
+
+    r = div32(&q, num, den);
+
+#else
+
+    q = (num / den);
+
+    r = (num % den);
+
+#endif
+
+    EAX = (uint32_t)q;
+
+    EDX = (uint32_t)r;
+
+}
+",1,13902
+54e6814360ab2110ed3ed07b2b9a3f9907e1202a,"int qcow2_alloc_cluster_offset(BlockDriverState *bs, uint64_t offset,
+
+    int n_start, int n_end, int *num, QCowL2Meta *m)
+
+{
+
+    BDRVQcowState *s = bs->opaque;
+
+    int l2_index, ret, sectors;
+
+    uint64_t *l2_table;
+
+    unsigned int nb_clusters, keep_clusters;
+
+    uint64_t cluster_offset;
+
+
+
+    trace_qcow2_alloc_clusters_offset(qemu_coroutine_self(), offset,
+
+                                      n_start, n_end);
+
+
+
+    /* Find L2 entry for the first involved cluster */
+
+again:
+
+    ret = get_cluster_table(bs, offset, &l2_table, &l2_index);
+
+    if (ret < 0) {
+
+        return ret;
+
+    }
+
+
+
+    /*
+
+     * Calculate the number of clusters to look for. We stop at L2 table
+
+     * boundaries to keep things simple.
+
+     */
+
+    nb_clusters = MIN(size_to_clusters(s, n_end << BDRV_SECTOR_BITS),
+
+                      s->l2_size - l2_index);
+
+
+
+    cluster_offset = be64_to_cpu(l2_table[l2_index]);
+
+
+
+    /*
+
+     * Check how many clusters are already allocated and don't need COW, and how
+
+     * many need a new allocation.
+
+     */
+
+    if (qcow2_get_cluster_type(cluster_offset) == QCOW2_CLUSTER_NORMAL
+
+        && (cluster_offset & QCOW_OFLAG_COPIED))
+
+    {
+
+        /* We keep all QCOW_OFLAG_COPIED clusters */
+
+        keep_clusters =
+
+            count_contiguous_clusters(nb_clusters, s->cluster_size,
+
+                                      &l2_table[l2_index], 0,
+
+                                      QCOW_OFLAG_COPIED | QCOW_OFLAG_ZERO);
+
+        assert(keep_clusters <= nb_clusters);
+
+        nb_clusters -= keep_clusters;
+
+    } else {
+
+        /* For the moment, overwrite compressed clusters one by one */
+
+        if (cluster_offset & QCOW_OFLAG_COMPRESSED) {
+
+            nb_clusters = 1;
+
+        } else {
+
+            nb_clusters = count_cow_clusters(s, nb_clusters, l2_table, l2_index);
+
+        }
+
+
+
+        keep_clusters = 0;
+
+        cluster_offset = 0;
+
+    }
+
+
+
+    cluster_offset &= L2E_OFFSET_MASK;
+
+
+
+    /*
+
+     * The L2 table isn't used any more after this. As long as the cache works
+
+     * synchronously, it's important to release it before calling
+
+     * do_alloc_cluster_offset, which may yield if we need to wait for another
+
+     * request to complete. If we still had the reference, we could use up the
+
+     * whole cache with sleeping requests.
+
+     */
+
+    ret = qcow2_cache_put(bs, s->l2_table_cache, (void**) &l2_table);
+
+    if (ret < 0) {
+
+        return ret;
+
+    }
+
+
+
+    /* If there is something left to allocate, do that now */
+
+    *m = (QCowL2Meta) {
+
+        .cluster_offset     = cluster_offset,
+
+        .nb_clusters        = 0,
+
+    };
+
+    qemu_co_queue_init(&m->dependent_requests);
+
+
+
+    if (nb_clusters > 0) {
+
+        uint64_t alloc_offset;
+
+        uint64_t alloc_cluster_offset;
+
+        uint64_t keep_bytes = keep_clusters * s->cluster_size;
+
+
+
+        /* Calculate start and size of allocation */
+
+        alloc_offset = offset + keep_bytes;
+
+
+
+        if (keep_clusters == 0) {
+
+            alloc_cluster_offset = 0;
+
+        } else {
+
+            alloc_cluster_offset = cluster_offset + keep_bytes;
+
+        }
+
+
+
+        /* Allocate, if necessary at a given offset in the image file */
+
+        ret = do_alloc_cluster_offset(bs, alloc_offset, &alloc_cluster_offset,
+
+                                      &nb_clusters);
+
+        if (ret == -EAGAIN) {
+
+            goto again;
+
+        } else if (ret < 0) {
+
+            goto fail;
+
+        }
+
+
+
+        /* save info needed for meta data update */
+
+        if (nb_clusters > 0) {
+
+            int requested_sectors = n_end - keep_clusters * s->cluster_sectors;
+
+            int avail_sectors = (keep_clusters + nb_clusters)
+
+                                << (s->cluster_bits - BDRV_SECTOR_BITS);
+
+
+
+            *m = (QCowL2Meta) {
+
+                .cluster_offset = keep_clusters == 0 ?
+
+                                  alloc_cluster_offset : cluster_offset,
+
+                .alloc_offset   = alloc_cluster_offset,
+
+                .offset         = alloc_offset,
+
+                .n_start        = keep_clusters == 0 ? n_start : 0,
+
+                .nb_clusters    = nb_clusters,
+
+                .nb_available   = MIN(requested_sectors, avail_sectors),
+
+            };
+
+            qemu_co_queue_init(&m->dependent_requests);
+
+            QLIST_INSERT_HEAD(&s->cluster_allocs, m, next_in_flight);
+
+        }
+
+    }
+
+
+
+    /* Some cleanup work */
+
+    sectors = (keep_clusters + nb_clusters) << (s->cluster_bits - 9);
+
+    if (sectors > n_end) {
+
+        sectors = n_end;
+
+    }
+
+
+
+    assert(sectors > n_start);
+
+    *num = sectors - n_start;
+
+
+
+    return 0;
+
+
+
+fail:
+
+    if (m->nb_clusters > 0) {
+
+        QLIST_REMOVE(m, next_in_flight);
+
+    }
+
+    return ret;
+
+}
+",1,22580
+7c97946d6131b31340954a3f603b6bf92590a9a5,"void ff_mpeg4_encode_picture_header(MpegEncContext *s, int picture_number)
+
+{
+
+    int time_incr;
+
+    int time_div, time_mod;
+
+
+
+    if (s->pict_type == AV_PICTURE_TYPE_I) {
+
+        if (!(s->avctx->flags & AV_CODEC_FLAG_GLOBAL_HEADER)) {
+
+            if (s->strict_std_compliance < FF_COMPLIANCE_VERY_STRICT)  // HACK, the reference sw is buggy
+
+                mpeg4_encode_visual_object_header(s);
+
+            if (s->strict_std_compliance < FF_COMPLIANCE_VERY_STRICT || picture_number == 0)  // HACK, the reference sw is buggy
+
+                mpeg4_encode_vol_header(s, 0, 0);
+
+        }
+
+        if (!(s->workaround_bugs & FF_BUG_MS))
+
+            mpeg4_encode_gop_header(s);
+
+    }
+
+
+
+    s->partitioned_frame = s->data_partitioning && s->pict_type != AV_PICTURE_TYPE_B;
+
+
+
+    put_bits(&s->pb, 16, 0);                /* vop header */
+
+    put_bits(&s->pb, 16, VOP_STARTCODE);    /* vop header */
+
+    put_bits(&s->pb, 2, s->pict_type - 1);  /* pict type: I = 0 , P = 1 */
+
+
+
+    time_div  = FFUDIV(s->time, s->avctx->time_base.den);
+
+    time_mod  = FFUMOD(s->time, s->avctx->time_base.den);
+
+    time_incr = time_div - s->last_time_base;
+
+    av_assert0(time_incr >= 0);
+
+    while (time_incr--)
+
+        put_bits(&s->pb, 1, 1);
+
+
+
+    put_bits(&s->pb, 1, 0);
+
+
+
+    put_bits(&s->pb, 1, 1);                             /* marker */
+
+    put_bits(&s->pb, s->time_increment_bits, time_mod); /* time increment */
+
+    put_bits(&s->pb, 1, 1);                             /* marker */
+
+    put_bits(&s->pb, 1, 1);                             /* vop coded */
+
+    if (s->pict_type == AV_PICTURE_TYPE_P) {
+
+        put_bits(&s->pb, 1, s->no_rounding);    /* rounding type */
+
+    }
+
+    put_bits(&s->pb, 3, 0);     /* intra dc VLC threshold */
+
+    if (!s->progressive_sequence) {
+
+        put_bits(&s->pb, 1, s->current_picture_ptr->f->top_field_first);
+
+        put_bits(&s->pb, 1, s->alternate_scan);
+
+    }
+
+    // FIXME sprite stuff
+
+
+
+    put_bits(&s->pb, 5, s->qscale);
+
+
+
+    if (s->pict_type != AV_PICTURE_TYPE_I)
+
+        put_bits(&s->pb, 3, s->f_code);  /* fcode_for */
+
+    if (s->pict_type == AV_PICTURE_TYPE_B)
+
+        put_bits(&s->pb, 3, s->b_code);  /* fcode_back */
+
+}
+",1,8909
+18995b9808dc48897bda6ed93ce3e978191f7251,"static int announce_self_create(uint8_t *buf, 
+
+				uint8_t *mac_addr)
+
+{
+
+    uint32_t magic = EXPERIMENTAL_MAGIC;
+
+    uint16_t proto = htons(ETH_P_EXPERIMENTAL);
+
+
+
+    /* FIXME: should we send a different packet (arp/rarp/ping)? */
+
+
+
+    memset(buf, 0, 64);
+
+    memset(buf, 0xff, 6);         /* h_dst */
+
+    memcpy(buf + 6, mac_addr, 6); /* h_src */
+
+    memcpy(buf + 12, &proto, 2);  /* h_proto */
+
+    memcpy(buf + 14, &magic, 4);  /* magic */
+
+
+
+    return 64; /* len */
+
+}
+",1,18951
+cdd85eb2804018ab46a742ebf64dc5366b9fae73,"static void s390_msi_ctrl_write(void *opaque, hwaddr addr, uint64_t data,
+
+                                unsigned int size)
+
+{
+
+    S390PCIBusDevice *pbdev;
+
+    uint32_t io_int_word;
+
+    uint32_t fid = data >> ZPCI_MSI_VEC_BITS;
+
+    uint32_t vec = data & ZPCI_MSI_VEC_MASK;
+
+    uint64_t ind_bit;
+
+    uint32_t sum_bit;
+
+    uint32_t e = 0;
+
+
+
+    DPRINTF(""write_msix data 0x%"" PRIx64 "" fid %d vec 0x%x\n"", data, fid, vec);
+
+
+
+    pbdev = s390_pci_find_dev_by_fid(fid);
+
+    if (!pbdev) {
+
+        e |= (vec << ERR_EVENT_MVN_OFFSET);
+
+        s390_pci_generate_error_event(ERR_EVENT_NOMSI, 0, fid, addr, e);
+
+        return;
+
+    }
+
+
+
+    if (pbdev->state != ZPCI_FS_ENABLED) {
+
+        return;
+
+    }
+
+
+
+    ind_bit = pbdev->routes.adapter.ind_offset;
+
+    sum_bit = pbdev->routes.adapter.summary_offset;
+
+
+
+    set_ind_atomic(pbdev->routes.adapter.ind_addr + (ind_bit + vec) / 8,
+
+                   0x80 >> ((ind_bit + vec) % 8));
+
+    if (!set_ind_atomic(pbdev->routes.adapter.summary_addr + sum_bit / 8,
+
+                                       0x80 >> (sum_bit % 8))) {
+
+        io_int_word = (pbdev->isc << 27) | IO_INT_WORD_AI;
+
+        s390_io_interrupt(0, 0, 0, io_int_word);
+
+    }
+
+}
+",1,2226
+09cd058a2cf77bb7a3b10ff93c1f80ed88bca364,"static int vtd_remap_irq_get(IntelIOMMUState *iommu, uint16_t index, VTDIrq *irq)
+
+{
+
+    VTD_IRTE irte = { 0 };
+
+    int ret = 0;
+
+
+
+    ret = vtd_irte_get(iommu, index, &irte);
+
+    if (ret) {
+
+        return ret;
+
+    }
+
+
+
+    irq->trigger_mode = irte.trigger_mode;
+
+    irq->vector = irte.vector;
+
+    irq->delivery_mode = irte.delivery_mode;
+
+    /* Not support EIM yet: please refer to vt-d 9.10 DST bits */
+
+#define  VTD_IR_APIC_DEST_MASK         (0xff00ULL)
+
+#define  VTD_IR_APIC_DEST_SHIFT        (8)
+
+    irq->dest = (le32_to_cpu(irte.dest_id) & VTD_IR_APIC_DEST_MASK) >> \
+
+        VTD_IR_APIC_DEST_SHIFT;
+
+    irq->dest_mode = irte.dest_mode;
+
+    irq->redir_hint = irte.redir_hint;
+
+
+
+    VTD_DPRINTF(IR, ""remapping interrupt index %d: trig:%u,vec:%u,""
+
+                ""deliver:%u,dest:%u,dest_mode:%u"", index,
+
+                irq->trigger_mode, irq->vector, irq->delivery_mode,
+
+                irq->dest, irq->dest_mode);
+
+
+
+    return 0;
+
+}
+",1,7176
+14a10fc39923b3af07c8c46d22cb20843bee3a72,"static void m68k_cpu_realizefn(DeviceState *dev, Error **errp)
+
+{
+
+    M68kCPU *cpu = M68K_CPU(dev);
+
+    M68kCPUClass *mcc = M68K_CPU_GET_CLASS(dev);
+
+
+
+    m68k_cpu_init_gdb(cpu);
+
+
+
+    cpu_reset(CPU(cpu));
+
+
+
+    mcc->parent_realize(dev, errp);
+
+}
+",1,18694
+8caf02127e92939fff39b63a7ff1a5834d320191,"static int openfile(char *name, int flags, QDict *opts)
+
+{
+
+    Error *local_err = NULL;
+
+
+
+
+    if (qemuio_blk) {
+
+        fprintf(stderr, ""file open already, try 'help close'\n"");
+
+        QDECREF(opts);
+
+        return 1;
+
+    }
+
+
+
+    qemuio_blk = blk_new_open(""hda"", name, NULL, opts, flags, &local_err);
+
+    if (!qemuio_blk) {
+
+        fprintf(stderr, ""%s: can't open%s%s: %s\n"", progname,
+
+                name ? "" device "" : """", name ?: """",
+
+                error_get_pretty(local_err));
+
+        error_free(local_err);
+
+        return 1;
+
+    }
+
+
+
+    bs = blk_bs(qemuio_blk);
+
+    if (bdrv_is_encrypted(bs)) {
+
+        char password[256];
+
+        printf(""Disk image '%s' is encrypted.\n"", name);
+
+        if (qemu_read_password(password, sizeof(password)) < 0) {
+
+            error_report(""No password given"");
+
+            goto error;
+
+        }
+
+        if (bdrv_set_key(bs, password) < 0) {
+
+            error_report(""invalid password"");
+
+            goto error;
+
+        }
+
+    }
+
+
+
+
+
+    return 0;
+
+
+
+ error:
+
+    blk_unref(qemuio_blk);
+
+    qemuio_blk = NULL;
+
+    return 1;
+
+}",1,8022
+3e0f7126b53b395d9e79df57b2e626eb99ad846b,"static void inner_add_yblock_bw_16_obmc_32_sse2(const uint8_t *obmc, const long obmc_stride, uint8_t * * block, int b_w, long b_h,
+
+                      int src_x, int src_y, long src_stride, slice_buffer * sb, int add, uint8_t * dst8){
+
+snow_inner_add_yblock_sse2_header
+
+snow_inner_add_yblock_sse2_start_16(""xmm1"", ""xmm5"", ""3"", ""0"")
+
+snow_inner_add_yblock_sse2_accum_16(""2"", ""16"")
+
+snow_inner_add_yblock_sse2_accum_16(""1"", ""512"")
+
+snow_inner_add_yblock_sse2_accum_16(""0"", ""528"")
+
+
+
+             ""mov %0, %%""REG_d""              \n\t""
+
+             ""movdqa %%xmm1, %%xmm0          \n\t""
+
+             ""movdqa %%xmm5, %%xmm4          \n\t""
+
+             ""punpcklwd %%xmm7, %%xmm0       \n\t""
+
+             ""paddd (%%""REG_D""), %%xmm0      \n\t""
+
+             ""punpckhwd %%xmm7, %%xmm1       \n\t""
+
+             ""paddd 16(%%""REG_D""), %%xmm1    \n\t""
+
+             ""punpcklwd %%xmm7, %%xmm4       \n\t""
+
+             ""paddd 32(%%""REG_D""), %%xmm4    \n\t""
+
+             ""punpckhwd %%xmm7, %%xmm5       \n\t""
+
+             ""paddd 48(%%""REG_D""), %%xmm5    \n\t""
+
+             ""paddd %%xmm3, %%xmm0           \n\t""
+
+             ""paddd %%xmm3, %%xmm1           \n\t""
+
+             ""paddd %%xmm3, %%xmm4           \n\t""
+
+             ""paddd %%xmm3, %%xmm5           \n\t""
+
+             ""psrad $8, %%xmm0               \n\t"" /* FRAC_BITS. */
+
+             ""psrad $8, %%xmm1               \n\t"" /* FRAC_BITS. */
+
+             ""psrad $8, %%xmm4               \n\t"" /* FRAC_BITS. */
+
+             ""psrad $8, %%xmm5               \n\t"" /* FRAC_BITS. */
+
+
+
+             ""packssdw %%xmm1, %%xmm0        \n\t""
+
+             ""packssdw %%xmm5, %%xmm4        \n\t""
+
+             ""packuswb %%xmm4, %%xmm0        \n\t""
+
+
+
+             ""movdqu %%xmm0, (%%""REG_d"")       \n\t""
+
+
+
+snow_inner_add_yblock_sse2_end_16
+
+}
+",1,22934
+882b3b97697affb36ca3d174f42f846232008979,"static int css_add_virtual_chpid(uint8_t cssid, uint8_t chpid, uint8_t type)
+
+{
+
+    CssImage *css;
+
+
+
+    trace_css_chpid_add(cssid, chpid, type);
+
+    if (cssid > MAX_CSSID) {
+
+        return -EINVAL;
+
+    }
+
+    css = channel_subsys.css[cssid];
+
+    if (!css) {
+
+        return -EINVAL;
+
+    }
+
+    if (css->chpids[chpid].in_use) {
+
+        return -EEXIST;
+
+    }
+
+    css->chpids[chpid].in_use = 1;
+
+    css->chpids[chpid].type = type;
+
+    css->chpids[chpid].is_virtual = 1;
+
+
+
+    css_generate_chp_crws(cssid, chpid);
+
+
+
+    return 0;
+
+}
+",1,8896
+53a3748ed23136615e488dc463b91aa57c0e9ec6,"static void do_subtitle_out(AVFormatContext *s,
+
+                            OutputStream *ost,
+
+                            InputStream *ist,
+
+                            AVSubtitle *sub,
+
+                            int64_t pts)
+
+{
+
+    int subtitle_out_max_size = 1024 * 1024;
+
+    int subtitle_out_size, nb, i;
+
+    AVCodecContext *enc;
+
+    AVPacket pkt;
+
+
+
+    if (pts == AV_NOPTS_VALUE) {
+
+        av_log(NULL, AV_LOG_ERROR, ""Subtitle packets must have a pts\n"");
+
+        if (exit_on_error)
+
+            exit_program(1);
+
+        return;
+
+    }
+
+
+
+    enc = ost->st->codec;
+
+
+
+    if (!subtitle_out) {
+
+        subtitle_out = av_malloc(subtitle_out_max_size);
+
+    }
+
+
+
+    /* Note: DVB subtitle need one packet to draw them and one other
+
+       packet to clear them */
+
+    /* XXX: signal it in the codec context ? */
+
+    if (enc->codec_id == CODEC_ID_DVB_SUBTITLE)
+
+        nb = 2;
+
+    else
+
+        nb = 1;
+
+
+
+    for (i = 0; i < nb; i++) {
+
+        ost->sync_opts = av_rescale_q(pts, ist->st->time_base, enc->time_base);
+
+        if (!check_recording_time(ost))
+
+            return;
+
+
+
+        sub->pts = av_rescale_q(pts, ist->st->time_base, AV_TIME_BASE_Q);
+
+        // start_display_time is required to be 0
+
+        sub->pts               += av_rescale_q(sub->start_display_time, (AVRational){ 1, 1000 }, AV_TIME_BASE_Q);
+
+        sub->end_display_time  -= sub->start_display_time;
+
+        sub->start_display_time = 0;
+
+        subtitle_out_size = avcodec_encode_subtitle(enc, subtitle_out,
+
+                                                    subtitle_out_max_size, sub);
+
+        if (subtitle_out_size < 0) {
+
+            av_log(NULL, AV_LOG_FATAL, ""Subtitle encoding failed\n"");
+
+            exit_program(1);
+
+        }
+
+
+
+        av_init_packet(&pkt);
+
+        pkt.data = subtitle_out;
+
+        pkt.size = subtitle_out_size;
+
+        pkt.pts  = av_rescale_q(sub->pts, AV_TIME_BASE_Q, ost->st->time_base);
+
+        pkt.duration = av_rescale_q(sub->end_display_time, (AVRational){ 1, 1000 }, ost->st->time_base);
+
+        if (enc->codec_id == CODEC_ID_DVB_SUBTITLE) {
+
+            /* XXX: the pts correction is handled here. Maybe handling
+
+               it in the codec would be better */
+
+            if (i == 0)
+
+                pkt.pts += 90 * sub->start_display_time;
+
+            else
+
+                pkt.pts += 90 * sub->end_display_time;
+
+        }
+
+        write_frame(s, &pkt, ost);
+
+        subtitle_size += pkt.size;
+
+    }
+
+}
+",1,14178
+823bd7391c96ba675f20fd6d952d1cb6e1ffb851,"static int32_t scsi_disk_emulate_command(SCSIRequest *req, uint8_t *buf)
+
+{
+
+    SCSIDiskReq *r = DO_UPCAST(SCSIDiskReq, req, req);
+
+    SCSIDiskState *s = DO_UPCAST(SCSIDiskState, qdev, req->dev);
+
+    uint64_t nb_sectors;
+
+    uint8_t *outbuf;
+
+    int buflen;
+
+
+
+    switch (req->cmd.buf[0]) {
+
+    case INQUIRY:
+
+    case MODE_SENSE:
+
+    case MODE_SENSE_10:
+
+    case RESERVE:
+
+    case RESERVE_10:
+
+    case RELEASE:
+
+    case RELEASE_10:
+
+    case START_STOP:
+
+    case ALLOW_MEDIUM_REMOVAL:
+
+    case GET_CONFIGURATION:
+
+    case GET_EVENT_STATUS_NOTIFICATION:
+
+    case MECHANISM_STATUS:
+
+    case REQUEST_SENSE:
+
+        break;
+
+
+
+    default:
+
+        if (s->tray_open || !bdrv_is_inserted(s->qdev.conf.bs)) {
+
+            scsi_check_condition(r, SENSE_CODE(NO_MEDIUM));
+
+            return 0;
+
+        }
+
+        break;
+
+    }
+
+
+
+    /*
+
+     * FIXME: we shouldn't return anything bigger than 4k, but the code
+
+     * requires the buffer to be as big as req->cmd.xfer in several
+
+     * places.  So, do not allow CDBs with a very large ALLOCATION
+
+     * LENGTH.  The real fix would be to modify scsi_read_data and
+
+     * dma_buf_read, so that they return data beyond the buflen
+
+     * as all zeros.
+
+     */
+
+    if (req->cmd.xfer > 65536) {
+
+        goto illegal_request;
+
+    }
+
+    r->buflen = MAX(4096, req->cmd.xfer);
+
+
+
+    if (!r->iov.iov_base) {
+
+        r->iov.iov_base = qemu_blockalign(s->qdev.conf.bs, r->buflen);
+
+    }
+
+
+
+    buflen = req->cmd.xfer;
+
+    outbuf = r->iov.iov_base;
+
+    memset(outbuf, 0, r->buflen);
+
+    switch (req->cmd.buf[0]) {
+
+    case TEST_UNIT_READY:
+
+        assert(!s->tray_open && bdrv_is_inserted(s->qdev.conf.bs));
+
+        break;
+
+    case INQUIRY:
+
+        buflen = scsi_disk_emulate_inquiry(req, outbuf);
+
+        if (buflen < 0) {
+
+            goto illegal_request;
+
+        }
+
+        break;
+
+    case MODE_SENSE:
+
+    case MODE_SENSE_10:
+
+        buflen = scsi_disk_emulate_mode_sense(r, outbuf);
+
+        if (buflen < 0) {
+
+            goto illegal_request;
+
+        }
+
+        break;
+
+    case READ_TOC:
+
+        buflen = scsi_disk_emulate_read_toc(req, outbuf);
+
+        if (buflen < 0) {
+
+            goto illegal_request;
+
+        }
+
+        break;
+
+    case RESERVE:
+
+        if (req->cmd.buf[1] & 1) {
+
+            goto illegal_request;
+
+        }
+
+        break;
+
+    case RESERVE_10:
+
+        if (req->cmd.buf[1] & 3) {
+
+            goto illegal_request;
+
+        }
+
+        break;
+
+    case RELEASE:
+
+        if (req->cmd.buf[1] & 1) {
+
+            goto illegal_request;
+
+        }
+
+        break;
+
+    case RELEASE_10:
+
+        if (req->cmd.buf[1] & 3) {
+
+            goto illegal_request;
+
+        }
+
+        break;
+
+    case START_STOP:
+
+        if (scsi_disk_emulate_start_stop(r) < 0) {
+
+            return 0;
+
+        }
+
+        break;
+
+    case ALLOW_MEDIUM_REMOVAL:
+
+        s->tray_locked = req->cmd.buf[4] & 1;
+
+        bdrv_lock_medium(s->qdev.conf.bs, req->cmd.buf[4] & 1);
+
+        break;
+
+    case READ_CAPACITY_10:
+
+        /* The normal LEN field for this command is zero.  */
+
+        memset(outbuf, 0, 8);
+
+        bdrv_get_geometry(s->qdev.conf.bs, &nb_sectors);
+
+        if (!nb_sectors) {
+
+            scsi_check_condition(r, SENSE_CODE(LUN_NOT_READY));
+
+            return 0;
+
+        }
+
+        if ((req->cmd.buf[8] & 1) == 0 && req->cmd.lba) {
+
+            goto illegal_request;
+
+        }
+
+        nb_sectors /= s->qdev.blocksize / 512;
+
+        /* Returned value is the address of the last sector.  */
+
+        nb_sectors--;
+
+        /* Remember the new size for read/write sanity checking. */
+
+        s->qdev.max_lba = nb_sectors;
+
+        /* Clip to 2TB, instead of returning capacity modulo 2TB. */
+
+        if (nb_sectors > UINT32_MAX) {
+
+            nb_sectors = UINT32_MAX;
+
+        }
+
+        outbuf[0] = (nb_sectors >> 24) & 0xff;
+
+        outbuf[1] = (nb_sectors >> 16) & 0xff;
+
+        outbuf[2] = (nb_sectors >> 8) & 0xff;
+
+        outbuf[3] = nb_sectors & 0xff;
+
+        outbuf[4] = 0;
+
+        outbuf[5] = 0;
+
+        outbuf[6] = s->qdev.blocksize >> 8;
+
+        outbuf[7] = 0;
+
+        break;
+
+    case REQUEST_SENSE:
+
+        /* Just return ""NO SENSE"".  */
+
+        buflen = scsi_build_sense(NULL, 0, outbuf, r->buflen,
+
+                                  (req->cmd.buf[1] & 1) == 0);
+
+        if (buflen < 0) {
+
+            goto illegal_request;
+
+        }
+
+        break;
+
+    case MECHANISM_STATUS:
+
+        buflen = scsi_emulate_mechanism_status(s, outbuf);
+
+        if (buflen < 0) {
+
+            goto illegal_request;
+
+        }
+
+        break;
+
+    case GET_CONFIGURATION:
+
+        buflen = scsi_get_configuration(s, outbuf);
+
+        if (buflen < 0) {
+
+            goto illegal_request;
+
+        }
+
+        break;
+
+    case GET_EVENT_STATUS_NOTIFICATION:
+
+        buflen = scsi_get_event_status_notification(s, r, outbuf);
+
+        if (buflen < 0) {
+
+            goto illegal_request;
+
+        }
+
+        break;
+
+    case READ_DISC_INFORMATION:
+
+        buflen = scsi_read_disc_information(s, r, outbuf);
+
+        if (buflen < 0) {
+
+            goto illegal_request;
+
+        }
+
+        break;
+
+    case READ_DVD_STRUCTURE:
+
+        buflen = scsi_read_dvd_structure(s, r, outbuf);
+
+        if (buflen < 0) {
+
+            goto illegal_request;
+
+        }
+
+        break;
+
+    case SERVICE_ACTION_IN_16:
+
+        /* Service Action In subcommands. */
+
+        if ((req->cmd.buf[1] & 31) == SAI_READ_CAPACITY_16) {
+
+            DPRINTF(""SAI READ CAPACITY(16)\n"");
+
+            memset(outbuf, 0, req->cmd.xfer);
+
+            bdrv_get_geometry(s->qdev.conf.bs, &nb_sectors);
+
+            if (!nb_sectors) {
+
+                scsi_check_condition(r, SENSE_CODE(LUN_NOT_READY));
+
+                return 0;
+
+            }
+
+            if ((req->cmd.buf[14] & 1) == 0 && req->cmd.lba) {
+
+                goto illegal_request;
+
+            }
+
+            nb_sectors /= s->qdev.blocksize / 512;
+
+            /* Returned value is the address of the last sector.  */
+
+            nb_sectors--;
+
+            /* Remember the new size for read/write sanity checking. */
+
+            s->qdev.max_lba = nb_sectors;
+
+            outbuf[0] = (nb_sectors >> 56) & 0xff;
+
+            outbuf[1] = (nb_sectors >> 48) & 0xff;
+
+            outbuf[2] = (nb_sectors >> 40) & 0xff;
+
+            outbuf[3] = (nb_sectors >> 32) & 0xff;
+
+            outbuf[4] = (nb_sectors >> 24) & 0xff;
+
+            outbuf[5] = (nb_sectors >> 16) & 0xff;
+
+            outbuf[6] = (nb_sectors >> 8) & 0xff;
+
+            outbuf[7] = nb_sectors & 0xff;
+
+            outbuf[8] = 0;
+
+            outbuf[9] = 0;
+
+            outbuf[10] = s->qdev.blocksize >> 8;
+
+            outbuf[11] = 0;
+
+            outbuf[12] = 0;
+
+            outbuf[13] = get_physical_block_exp(&s->qdev.conf);
+
+
+
+            /* set TPE bit if the format supports discard */
+
+            if (s->qdev.conf.discard_granularity) {
+
+                outbuf[14] = 0x80;
+
+            }
+
+
+
+            /* Protection, exponent and lowest lba field left blank. */
+
+            break;
+
+        }
+
+        DPRINTF(""Unsupported Service Action In\n"");
+
+        goto illegal_request;
+
+    case SYNCHRONIZE_CACHE:
+
+        /* The request is used as the AIO opaque value, so add a ref.  */
+
+        scsi_req_ref(&r->req);
+
+        bdrv_acct_start(s->qdev.conf.bs, &r->acct, 0, BDRV_ACCT_FLUSH);
+
+        r->req.aiocb = bdrv_aio_flush(s->qdev.conf.bs, scsi_aio_complete, r);
+
+        return 0;
+
+    case SEEK_10:
+
+        DPRINTF(""Seek(10) (sector %"" PRId64 "")\n"", r->req.cmd.lba);
+
+        if (r->req.cmd.lba > s->qdev.max_lba) {
+
+            goto illegal_lba;
+
+        }
+
+        break;
+
+    case MODE_SELECT:
+
+        DPRINTF(""Mode Select(6) (len %lu)\n"", (long)r->req.cmd.xfer);
+
+        break;
+
+    case MODE_SELECT_10:
+
+        DPRINTF(""Mode Select(10) (len %lu)\n"", (long)r->req.cmd.xfer);
+
+        break;
+
+    case UNMAP:
+
+        DPRINTF(""Unmap (len %lu)\n"", (long)r->req.cmd.xfer);
+
+        break;
+
+    case WRITE_SAME_10:
+
+    case WRITE_SAME_16:
+
+        nb_sectors = scsi_data_cdb_length(r->req.cmd.buf);
+
+        if (bdrv_is_read_only(s->qdev.conf.bs)) {
+
+            scsi_check_condition(r, SENSE_CODE(WRITE_PROTECTED));
+
+            return 0;
+
+        }
+
+        if (!check_lba_range(s, r->req.cmd.lba, nb_sectors)) {
+
+            goto illegal_lba;
+
+        }
+
+
+
+        /*
+
+         * We only support WRITE SAME with the unmap bit set for now.
+
+         */
+
+        if (!(req->cmd.buf[1] & 0x8)) {
+
+            goto illegal_request;
+
+        }
+
+
+
+        /* The request is used as the AIO opaque value, so add a ref.  */
+
+        scsi_req_ref(&r->req);
+
+        r->req.aiocb = bdrv_aio_discard(s->qdev.conf.bs,
+
+                                        r->req.cmd.lba * (s->qdev.blocksize / 512),
+
+                                        nb_sectors * (s->qdev.blocksize / 512),
+
+                                        scsi_aio_complete, r);
+
+        return 0;
+
+    default:
+
+        DPRINTF(""Unknown SCSI command (%2.2x)\n"", buf[0]);
+
+        scsi_check_condition(r, SENSE_CODE(INVALID_OPCODE));
+
+        return 0;
+
+    }
+
+    assert(!r->req.aiocb);
+
+    r->iov.iov_len = MIN(r->buflen, req->cmd.xfer);
+
+    if (r->iov.iov_len == 0) {
+
+        scsi_req_complete(&r->req, GOOD);
+
+    }
+
+    if (r->req.cmd.mode == SCSI_XFER_TO_DEV) {
+
+        assert(r->iov.iov_len == req->cmd.xfer);
+
+        return -r->iov.iov_len;
+
+    } else {
+
+        return r->iov.iov_len;
+
+    }
+
+
+
+illegal_request:
+
+    if (r->req.status == -1) {
+
+        scsi_check_condition(r, SENSE_CODE(INVALID_FIELD));
+
+    }
+
+    return 0;
+
+
+
+illegal_lba:
+
+    scsi_check_condition(r, SENSE_CODE(LBA_OUT_OF_RANGE));
+
+    return 0;
+
+}
+",1,8582
+8d04fb55dec381bc5105cb47f29d918e579e8cbd,"void gicv3_cpuif_update(GICv3CPUState *cs)
+{
+    /* Tell the CPU about its highest priority pending interrupt */
+    int irqlevel = 0;
+    int fiqlevel = 0;
+    ARMCPU *cpu = ARM_CPU(cs->cpu);
+    CPUARMState *env = &cpu->env;
+    trace_gicv3_cpuif_update(gicv3_redist_affid(cs), cs->hppi.irq,
+                             cs->hppi.grp, cs->hppi.prio);
+    if (cs->hppi.grp == GICV3_G1 && !arm_feature(env, ARM_FEATURE_EL3)) {
+        /* If a Security-enabled GIC sends a G1S interrupt to a
+         * Security-disabled CPU, we must treat it as if it were G0.
+         */
+        cs->hppi.grp = GICV3_G0;
+    }
+    if (icc_hppi_can_preempt(cs)) {
+        /* We have an interrupt: should we signal it as IRQ or FIQ?
+         * This is described in the GICv3 spec section 4.6.2.
+         */
+        bool isfiq;
+        switch (cs->hppi.grp) {
+        case GICV3_G0:
+            isfiq = true;
+            break;
+        case GICV3_G1:
+            isfiq = (!arm_is_secure(env) ||
+                     (arm_current_el(env) == 3 && arm_el_is_aa64(env, 3)));
+            break;
+        case GICV3_G1NS:
+            isfiq = arm_is_secure(env);
+            break;
+        default:
+            g_assert_not_reached();
+        }
+        if (isfiq) {
+            fiqlevel = 1;
+        } else {
+            irqlevel = 1;
+        }
+    }
+    trace_gicv3_cpuif_set_irqs(gicv3_redist_affid(cs), fiqlevel, irqlevel);
+    qemu_set_irq(cs->parent_fiq, fiqlevel);
+    qemu_set_irq(cs->parent_irq, irqlevel);
+}",1,5259
+1c02a9732aa2e5ec0eaf83e65044704af05e8400,"static void wmv2_add_block(Wmv2Context *w, DCTELEM *block1, uint8_t *dst, int stride, int n){
+
+    MpegEncContext * const s= &w->s;
+
+
+
+    switch(w->abt_type_table[n]){
+
+    case 0:
+
+        if (s->block_last_index[n] >= 0) {
+
+            s->dsp.idct_add (dst, stride, block1);
+
+        }
+
+        break;
+
+    case 1:
+
+        simple_idct84_add(dst           , stride, block1);
+
+        simple_idct84_add(dst + 4*stride, stride, w->abt_block2[n]);
+
+        memset(w->abt_block2[n], 0, 64*sizeof(DCTELEM));
+
+        break;
+
+    case 2:
+
+        simple_idct48_add(dst           , stride, block1);
+
+        simple_idct48_add(dst + 4       , stride, w->abt_block2[n]);
+
+        memset(w->abt_block2[n], 0, 64*sizeof(DCTELEM));
+
+        break;
+
+    default:
+
+        av_log(s->avctx, AV_LOG_ERROR, ""internal error in WMV2 abt\n"");
+
+    }
+
+}
+",1,11866
+0ecca7a49f8e254c12a3a1de048d738bfbb614c6,"static void encode_gray_bitstream(HYuvContext *s, int count){
+
+    int i;
+
+    
+
+    count/=2;
+
+    if(s->flags&CODEC_FLAG_PASS1){
+
+        for(i=0; i<count; i++){
+
+            s->stats[0][ s->temp[0][2*i  ] ]++;
+
+            s->stats[0][ s->temp[0][2*i+1] ]++;
+
+        }
+
+    }else if(s->context){
+
+        for(i=0; i<count; i++){
+
+            s->stats[0][ s->temp[0][2*i  ] ]++;
+
+            put_bits(&s->pb, s->len[0][ s->temp[0][2*i  ] ], s->bits[0][ s->temp[0][2*i  ] ]);
+
+            s->stats[0][ s->temp[0][2*i+1] ]++;
+
+            put_bits(&s->pb, s->len[0][ s->temp[0][2*i+1] ], s->bits[0][ s->temp[0][2*i+1] ]);
+
+        }
+
+    }else{
+
+        for(i=0; i<count; i++){
+
+            put_bits(&s->pb, s->len[0][ s->temp[0][2*i  ] ], s->bits[0][ s->temp[0][2*i  ] ]);
+
+            put_bits(&s->pb, s->len[0][ s->temp[0][2*i+1] ], s->bits[0][ s->temp[0][2*i+1] ]);
+
+        }
+
+    }
+
+}
+",1,27219
+5ff998a233d759d0de83ea6f95c383d03d25d88e,"static int encode_residual_ch(FlacEncodeContext *s, int ch)
+
+{
+
+    int i, n;
+
+    int min_order, max_order, opt_order, omethod;
+
+    FlacFrame *frame;
+
+    FlacSubframe *sub;
+
+    int32_t coefs[MAX_LPC_ORDER][MAX_LPC_ORDER];
+
+    int shift[MAX_LPC_ORDER];
+
+    int32_t *res, *smp;
+
+
+
+    frame = &s->frame;
+
+    sub   = &frame->subframes[ch];
+
+    res   = sub->residual;
+
+    smp   = sub->samples;
+
+    n     = frame->blocksize;
+
+
+
+    /* CONSTANT */
+
+    for (i = 1; i < n; i++)
+
+        if(smp[i] != smp[0])
+
+            break;
+
+    if (i == n) {
+
+        sub->type = sub->type_code = FLAC_SUBFRAME_CONSTANT;
+
+        res[0] = smp[0];
+
+        return subframe_count_exact(s, sub, 0);
+
+    }
+
+
+
+    /* VERBATIM */
+
+    if (frame->verbatim_only || n < 5) {
+
+        sub->type = sub->type_code = FLAC_SUBFRAME_VERBATIM;
+
+        memcpy(res, smp, n * sizeof(int32_t));
+
+        return subframe_count_exact(s, sub, 0);
+
+    }
+
+
+
+    min_order  = s->options.min_prediction_order;
+
+    max_order  = s->options.max_prediction_order;
+
+    omethod    = s->options.prediction_order_method;
+
+
+
+    /* FIXED */
+
+    sub->type = FLAC_SUBFRAME_FIXED;
+
+    if (s->options.lpc_type == FF_LPC_TYPE_NONE  ||
+
+        s->options.lpc_type == FF_LPC_TYPE_FIXED || n <= max_order) {
+
+        uint32_t bits[MAX_FIXED_ORDER+1];
+
+        if (max_order > MAX_FIXED_ORDER)
+
+            max_order = MAX_FIXED_ORDER;
+
+        opt_order = 0;
+
+        bits[0]   = UINT32_MAX;
+
+        for (i = min_order; i <= max_order; i++) {
+
+            encode_residual_fixed(res, smp, n, i);
+
+            bits[i] = find_subframe_rice_params(s, sub, i);
+
+            if (bits[i] < bits[opt_order])
+
+                opt_order = i;
+
+        }
+
+        sub->order     = opt_order;
+
+        sub->type_code = sub->type | sub->order;
+
+        if (sub->order != max_order) {
+
+            encode_residual_fixed(res, smp, n, sub->order);
+
+            find_subframe_rice_params(s, sub, sub->order);
+
+        }
+
+        return subframe_count_exact(s, sub, sub->order);
+
+    }
+
+
+
+    /* LPC */
+
+    sub->type = FLAC_SUBFRAME_LPC;
+
+    opt_order = ff_lpc_calc_coefs(&s->lpc_ctx, smp, n, min_order, max_order,
+
+                                  s->options.lpc_coeff_precision, coefs, shift, s->options.lpc_type,
+
+                                  s->options.lpc_passes, omethod,
+
+                                  MAX_LPC_SHIFT, 0);
+
+
+
+    if (omethod == ORDER_METHOD_2LEVEL ||
+
+        omethod == ORDER_METHOD_4LEVEL ||
+
+        omethod == ORDER_METHOD_8LEVEL) {
+
+        int levels = 1 << omethod;
+
+        uint32_t bits[1 << ORDER_METHOD_8LEVEL];
+
+        int order;
+
+        int opt_index   = levels-1;
+
+        opt_order       = max_order-1;
+
+        bits[opt_index] = UINT32_MAX;
+
+        for (i = levels-1; i >= 0; i--) {
+
+            order = min_order + (((max_order-min_order+1) * (i+1)) / levels)-1;
+
+            if (order < 0)
+
+                order = 0;
+
+            encode_residual_lpc(res, smp, n, order+1, coefs[order], shift[order]);
+
+            bits[i] = find_subframe_rice_params(s, sub, order+1);
+
+            if (bits[i] < bits[opt_index]) {
+
+                opt_index = i;
+
+                opt_order = order;
+
+            }
+
+        }
+
+        opt_order++;
+
+    } else if (omethod == ORDER_METHOD_SEARCH) {
+
+        // brute-force optimal order search
+
+        uint32_t bits[MAX_LPC_ORDER];
+
+        opt_order = 0;
+
+        bits[0]   = UINT32_MAX;
+
+        for (i = min_order-1; i < max_order; i++) {
+
+            encode_residual_lpc(res, smp, n, i+1, coefs[i], shift[i]);
+
+            bits[i] = find_subframe_rice_params(s, sub, i+1);
+
+            if (bits[i] < bits[opt_order])
+
+                opt_order = i;
+
+        }
+
+        opt_order++;
+
+    } else if (omethod == ORDER_METHOD_LOG) {
+
+        uint32_t bits[MAX_LPC_ORDER];
+
+        int step;
+
+
+
+        opt_order = min_order - 1 + (max_order-min_order)/3;
+
+        memset(bits, -1, sizeof(bits));
+
+
+
+        for (step = 16; step; step >>= 1) {
+
+            int last = opt_order;
+
+            for (i = last-step; i <= last+step; i += step) {
+
+                if (i < min_order-1 || i >= max_order || bits[i] < UINT32_MAX)
+
+                    continue;
+
+                encode_residual_lpc(res, smp, n, i+1, coefs[i], shift[i]);
+
+                bits[i] = find_subframe_rice_params(s, sub, i+1);
+
+                if (bits[i] < bits[opt_order])
+
+                    opt_order = i;
+
+            }
+
+        }
+
+        opt_order++;
+
+    }
+
+
+
+    sub->order     = opt_order;
+
+    sub->type_code = sub->type | (sub->order-1);
+
+    sub->shift     = shift[sub->order-1];
+
+    for (i = 0; i < sub->order; i++)
+
+        sub->coefs[i] = coefs[sub->order-1][i];
+
+
+
+    encode_residual_lpc(res, smp, n, sub->order, sub->coefs, sub->shift);
+
+
+
+    find_subframe_rice_params(s, sub, sub->order);
+
+
+
+    return subframe_count_exact(s, sub, sub->order);
+
+}
+",1,9234
+ce675a7579fea498397c5d2da3c5367671e9f02a,"int net_init_tap(const NetClientOptions *opts, const char *name,
+                 NetClientState *peer)
+{
+    const NetdevTapOptions *tap;
+    int fd, vnet_hdr = 0, i = 0, queues;
+    /* for the no-fd, no-helper case */
+    const char *script = NULL; /* suppress wrong ""uninit'd use"" gcc warning */
+    const char *downscript = NULL;
+    const char *vhostfdname;
+    char ifname[128];
+    assert(opts->kind == NET_CLIENT_OPTIONS_KIND_TAP);
+    tap = opts->tap;
+    queues = tap->has_queues ? tap->queues : 1;
+    vhostfdname = tap->has_vhostfd ? tap->vhostfd : NULL;
+    if (tap->has_fd) {
+        if (tap->has_ifname || tap->has_script || tap->has_downscript ||
+            tap->has_vnet_hdr || tap->has_helper || tap->has_queues ||
+            tap->has_fds) {
+            error_report(""ifname=, script=, downscript=, vnet_hdr=, ""
+                         ""helper=, queues=, and fds= are invalid with fd="");
+        fd = monitor_handle_fd_param(cur_mon, tap->fd);
+        if (fd == -1) {
+        fcntl(fd, F_SETFL, O_NONBLOCK);
+        vnet_hdr = tap_probe_vnet_hdr(fd);
+        if (net_init_tap_one(tap, peer, ""tap"", name, NULL,
+                             script, downscript,
+                             vhostfdname, vnet_hdr, fd)) {
+    } else if (tap->has_fds) {
+        char *fds[MAX_TAP_QUEUES];
+        char *vhost_fds[MAX_TAP_QUEUES];
+        int nfds, nvhosts;
+        if (tap->has_ifname || tap->has_script || tap->has_downscript ||
+            tap->has_vnet_hdr || tap->has_helper || tap->has_queues ||
+            tap->has_fd) {
+            error_report(""ifname=, script=, downscript=, vnet_hdr=, ""
+                         ""helper=, queues=, and fd= are invalid with fds="");
+        nfds = get_fds(tap->fds, fds, MAX_TAP_QUEUES);
+        if (tap->has_vhostfds) {
+            nvhosts = get_fds(tap->vhostfds, vhost_fds, MAX_TAP_QUEUES);
+            if (nfds != nvhosts) {
+                error_report(""The number of fds passed does not match the ""
+                             ""number of vhostfds passed"");
+        for (i = 0; i < nfds; i++) {
+            fd = monitor_handle_fd_param(cur_mon, fds[i]);
+            if (fd == -1) {
+            fcntl(fd, F_SETFL, O_NONBLOCK);
+            if (i == 0) {
+                vnet_hdr = tap_probe_vnet_hdr(fd);
+            } else if (vnet_hdr != tap_probe_vnet_hdr(fd)) {
+                error_report(""vnet_hdr not consistent across given tap fds"");
+            if (net_init_tap_one(tap, peer, ""tap"", name, ifname,
+                                 script, downscript,
+                                 tap->has_vhostfds ? vhost_fds[i] : NULL,
+                                 vnet_hdr, fd)) {
+    } else if (tap->has_helper) {
+        if (tap->has_ifname || tap->has_script || tap->has_downscript ||
+            tap->has_vnet_hdr || tap->has_queues || tap->has_fds) {
+            error_report(""ifname=, script=, downscript=, and vnet_hdr= ""
+                         ""queues=, and fds= are invalid with helper="");
+        fd = net_bridge_run_helper(tap->helper, DEFAULT_BRIDGE_INTERFACE);
+        if (fd == -1) {
+        fcntl(fd, F_SETFL, O_NONBLOCK);
+        vnet_hdr = tap_probe_vnet_hdr(fd);
+        if (net_init_tap_one(tap, peer, ""bridge"", name, ifname,
+                             script, downscript, vhostfdname,
+                             vnet_hdr, fd)) {
+    } else {
+        script = tap->has_script ? tap->script : DEFAULT_NETWORK_SCRIPT;
+        downscript = tap->has_downscript ? tap->downscript :
+            DEFAULT_NETWORK_DOWN_SCRIPT;
+        if (tap->has_ifname) {
+            pstrcpy(ifname, sizeof ifname, tap->ifname);
+        } else {
+            ifname[0] = '\0';
+        for (i = 0; i < queues; i++) {
+            fd = net_tap_init(tap, &vnet_hdr, i >= 1 ? ""no"" : script,
+                              ifname, sizeof ifname, queues > 1);
+            if (fd == -1) {
+            if (queues > 1 && i == 0 && !tap->has_ifname) {
+                if (tap_fd_get_ifname(fd, ifname)) {
+                    error_report(""Fail to get ifname"");
+            if (net_init_tap_one(tap, peer, ""tap"", name, ifname,
+                                 i >= 1 ? ""no"" : script,
+                                 i >= 1 ? ""no"" : downscript,
+                                 vhostfdname, vnet_hdr, fd)) {
+    return 0;",1,12272
