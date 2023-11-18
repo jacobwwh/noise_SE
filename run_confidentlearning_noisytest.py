@@ -22,6 +22,7 @@ from transformers import (WEIGHTS_NAME, AdamW, get_linear_schedule_with_warmup,
                           
 from utils.dataset_utils import ClassificationDataset
 from utils.codenet_utils import read_codenetdata
+from utils.devign_utils import generate_devigndata
 from model.bert import bert_classifier_self,lstm_classifier,bert_and_linear_classifier
 
 from utils.codenet_graph_utils import get_spt_dataset,GraphClassificationDataset
@@ -67,13 +68,15 @@ args=parser.parse_args()
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-assert args.dataset in ['java250','python800']
+assert args.dataset in ['poj', 'java250', 'python800','devign']
 assert args.model_type in ['codebert','graphcodebert','unixcoder','gin','lstm']
 
 if args.dataset=='java250':
     num_classes=250 #codenet java250
 elif args.dataset=='python800':
     num_classes=800 #codenet python800
+elif args.dataset=='devign':
+    num_classes = 2
 
 if args.model_type not in ['gcn','gin','ggnn','hgt']:
     if args.model_type=='codebert' or args.model_type=='lstm':
@@ -119,6 +122,8 @@ if args.model_type in ['gcn','gin','ggnn','hgt']:
 else:
     if args.dataset in ['java250','python800']:
         train_samples,valid_samples,test_samples=read_codenetdata(dataname=args.dataset,mislabeled_rate=args.noise_rate,noise_pattern=args.noise_pattern,noisy_test=True)
+    elif args.dataset=='devign':
+        train_samples, valid_samples, test_samples = generate_devigndata()
         
     trainset=ClassificationDataset(tokenizer,args,train_samples)
     validset=ClassificationDataset(tokenizer,args,valid_samples)
