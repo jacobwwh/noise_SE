@@ -5,7 +5,7 @@ import torch
 import csv
 from torch.utils.data import DataLoader, Dataset
 from utils.dataset_utils import convert_examples_to_features_noisyclassification
-data_dir='/mnt/nvme/noise_se/under/data/devign'
+data_dir='./data/devign'
 num_classes=104
 
 def generate_devigndata():
