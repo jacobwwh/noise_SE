@@ -26,4 +26,11 @@ Trained-from-scratch models: LSTM, GNN, Transformer (summarization)
 Pre-trained models: CodeBERT, GraphCodeBERT, UniXCoder, PLBART (summarization)
 
 
+## How to Run
+
+Program classification and vulnerability detection: python run_classification_xxx.py
+
+Code summarization: see code_sum/
+
+
 
